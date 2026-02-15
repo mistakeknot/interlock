@@ -343,3 +343,32 @@ class TestSignals:
         for hook in ["session-start.sh", "stop.sh"]:
             content = (project_root / "hooks" / hook).read_text()
             assert "interlock-signal.sh" in content, f"{hook} must emit signals"
+
+
+class TestWorkflowIntegration:
+    """Tests for Phase 3 workflow integration features."""
+
+    def test_pre_edit_checks_inbox(self, project_root):
+        """Edit hook should check inbox for commit notifications."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "inbox" in content.lower() or "/api/messages" in content
+
+    def test_pre_edit_has_pull_logic(self, project_root):
+        """Edit hook should pull when commit messages found."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "git pull --rebase" in content
+
+    def test_pre_edit_has_pull_cache(self, project_root):
+        """Edit hook should throttle inbox checks to avoid per-edit latency."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "inbox_check_path" in content or "interlock-pull-checked" in content
+
+    def test_pre_edit_has_rebase_abort_fallback(self, project_root):
+        """Edit hook should abort rebase on conflict rather than blocking."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "rebase --abort" in content
+
+    def test_lib_has_inbox_helper(self, project_root):
+        """lib.sh should have the inbox_check_path helper for throttle flag files."""
+        content = (project_root / "hooks" / "lib.sh").read_text()
+        assert "inbox_check_path" in content

@@ -65,3 +65,9 @@ commit_lock_path() {
     root=$(git_root)
     [[ -n "$root" ]] && echo "${root}/.git/commit.lock" || echo ""
 }
+
+# inbox_check_path returns the throttle flag file path for inbox polling.
+# Used by pre-edit.sh to avoid querying inbox on every edit (30s cache).
+inbox_check_path() {
+    echo "/tmp/interlock-pull-checked-${1}"
+}

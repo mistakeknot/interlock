@@ -21,6 +21,47 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) 
 
 SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 
+# --- Check inbox for commit notifications (throttled) ---
+# When another session commits, the postcommit hook sends a "commit:<hash>"
+# message to our inbox. We pull those changes before checking conflicts so
+# our reservation checks are against the latest state.
+PULL_FLAG=$(inbox_check_path "$SESSION_ID")
+if [[ ! -f "$PULL_FLAG" ]] || ! find "$PULL_FLAG" -mmin -0.5 -print -quit 2>/dev/null | grep -q .; then
+    # Cache expired (or first check) — touch flag and query inbox
+    touch "$PULL_FLAG" 2>/dev/null || true
+
+    INBOX_JSON=$(intermute_curl GET "/api/messages/inbox?agent=${INTERMUTE_AGENT_ID}&unread=true" 2>/dev/null) || INBOX_JSON=""
+
+    if [[ -n "$INBOX_JSON" ]] && command -v jq &>/dev/null; then
+        COMMIT_MSGS=$(echo "$INBOX_JSON" | jq -r '
+            [.messages[]? | select(.subject | startswith("commit:"))] | if length > 0 then . else empty end
+        ' 2>/dev/null) || COMMIT_MSGS=""
+
+        if [[ -n "$COMMIT_MSGS" && "$COMMIT_MSGS" != "null" ]]; then
+            # Pull remote changes (rebase to keep our work on top)
+            if git pull --rebase 2>/dev/null; then
+                PULL_CONTEXT="INTERLOCK: auto-pulled after commit(s) by other agent(s)."
+            else
+                # Rebase conflict — abort and warn, but don't block the edit
+                git rebase --abort 2>/dev/null || true
+                PULL_CONTEXT="INTERLOCK WARNING: auto-pull had conflicts, aborted rebase. Manual merge may be needed."
+            fi
+
+            # Acknowledge commit messages so we don't re-process them
+            echo "$COMMIT_MSGS" | jq -r '.[].id // empty' 2>/dev/null | while IFS= read -r msg_id; do
+                [[ -n "$msg_id" ]] && intermute_curl POST "/api/messages/${msg_id}/ack" 2>/dev/null || true
+            done
+
+            # Emit advisory context about the pull (if we have something to say)
+            if [[ -n "${PULL_CONTEXT:-}" ]]; then
+                cat <<ENDJSON
+{"additionalContext": "${PULL_CONTEXT}"}
+ENDJSON
+            fi
+        fi
+    fi
+fi
+
 # Make file path relative to project root
 REL_PATH="$FILE_PATH"
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || PROJECT_ROOT=""
