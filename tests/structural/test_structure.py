@@ -109,6 +109,8 @@ class TestHooks:
         "hooks/lib.sh", "hooks/session-start.sh", "hooks/pre-edit.sh", "hooks/stop.sh",
         "scripts/interlock-register.sh", "scripts/interlock-check.sh",
         "scripts/interlock-cleanup.sh", "scripts/interlock-signal.sh",
+        "scripts/interlock-precommit-hook", "scripts/interlock-postcommit-hook",
+        "scripts/interlock-install-hooks",
     ])
     def test_script_syntax(self, project_root, script):
         path = project_root / script
@@ -120,6 +122,7 @@ class TestHooks:
         "hooks/session-start.sh", "hooks/pre-edit.sh", "hooks/stop.sh",
         "scripts/interlock-register.sh", "scripts/interlock-check.sh",
         "scripts/interlock-cleanup.sh", "scripts/interlock-signal.sh",
+        "scripts/interlock-precommit-hook", "scripts/interlock-postcommit-hook",
     ])
     def test_script_executable(self, project_root, script):
         assert os.access(project_root / script, os.X_OK), f"{script} not executable"
@@ -214,6 +217,115 @@ class TestGitHook:
     def test_precommit_has_resolve_hint(self, project_root):
         content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
         assert "no-verify" in content
+
+
+class TestMandatoryReservations:
+    """Tests for Phase 2 mandatory reservation features."""
+
+    def test_pre_edit_blocks_on_conflict(self, project_root):
+        """Edit hook must return blocking decision, not just advisory context."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert '"decision": "block"' in content or '"decision":"block"' in content
+
+    def test_pre_edit_no_longer_advisory(self, project_root):
+        """Edit hook must not contain the old advisory-only comment."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "advisory conflict warning (never blocks)" not in content.lower()
+
+    def test_pre_edit_auto_reserves(self, project_root):
+        """Edit hook must auto-reserve files via Intermute API."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "/api/reservations" in content
+        assert "auto-reserve" in content
+        assert "ttl_minutes" in content
+
+    def test_pre_edit_uses_exclusive_reservation(self, project_root):
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "exclusive" in content
+
+    def test_postcommit_releases_reservations(self, project_root):
+        """Post-commit hook must release reservations for committed files."""
+        content = (project_root / "scripts" / "interlock-postcommit-hook").read_text()
+        assert "Auto-release" in content or "auto-release" in content
+        assert "DELETE" in content
+        assert "/api/reservations/" in content
+
+    def test_postcommit_only_releases_committed_files(self, project_root):
+        """Post-commit should match committed files to reservations, not release all."""
+        content = (project_root / "scripts" / "interlock-postcommit-hook").read_text()
+        assert "CHANGED_FILES" in content
+        assert "path_pattern" in content  # jq filter matching against patterns
+
+
+class TestMultiSessionCoordination:
+    """Tests for Phase 1 multi-session git safety features."""
+
+    def test_session_start_exports_git_index_file(self, project_root):
+        content = (project_root / "hooks" / "session-start.sh").read_text()
+        assert "GIT_INDEX_FILE" in content
+        assert "git read-tree HEAD" in content
+
+    def test_session_start_uses_session_id_for_index(self, project_root):
+        content = (project_root / "hooks" / "session-start.sh").read_text()
+        assert "index-${SESSION_ID}" in content
+
+    def test_precommit_has_commit_lock(self, project_root):
+        content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
+        assert "commit.lock" in content
+        assert "acquire_commit_lock" in content
+        assert "release_commit_lock" in content
+
+    def test_precommit_lock_has_timeout(self, project_root):
+        content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
+        assert "LOCK_TIMEOUT" in content
+
+    def test_precommit_lock_has_stale_detection(self, project_root):
+        content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
+        assert "kill -0" in content  # PID liveness check
+
+    def test_precommit_refreshes_index(self, project_root):
+        content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
+        assert "git read-tree HEAD" in content
+
+    def test_postcommit_hook_exists(self, project_root):
+        assert (project_root / "scripts" / "interlock-postcommit-hook").is_file()
+
+    def test_postcommit_hook_executable(self, project_root):
+        assert os.access(project_root / "scripts" / "interlock-postcommit-hook", os.X_OK)
+
+    def test_postcommit_has_marker(self, project_root):
+        content = (project_root / "scripts" / "interlock-postcommit-hook").read_text()
+        assert "INTERLOCK_HOOK_MARKER" in content
+
+    def test_postcommit_refreshes_index(self, project_root):
+        content = (project_root / "scripts" / "interlock-postcommit-hook").read_text()
+        assert "git read-tree HEAD" in content
+
+    def test_postcommit_broadcasts_commit(self, project_root):
+        content = (project_root / "scripts" / "interlock-postcommit-hook").read_text()
+        assert "/api/messages" in content
+        assert "/api/agents" in content
+
+    def test_postcommit_syntax(self, project_root):
+        path = project_root / "scripts" / "interlock-postcommit-hook"
+        result = subprocess.run(["bash", "-n", str(path)], capture_output=True)
+        assert result.returncode == 0, f"Syntax error: {result.stderr.decode()}"
+
+    def test_stop_cleans_session_index(self, project_root):
+        content = (project_root / "hooks" / "stop.sh").read_text()
+        assert "GIT_INDEX_FILE" in content
+        assert "rm -f" in content
+
+    def test_installer_handles_postcommit(self, project_root):
+        content = (project_root / "scripts" / "interlock-install-hooks").read_text()
+        assert "post-commit" in content
+        assert "interlock-postcommit-hook" in content
+
+    def test_lib_has_git_helpers(self, project_root):
+        content = (project_root / "hooks" / "lib.sh").read_text()
+        assert "git_root()" in content
+        assert "session_index_path()" in content
+        assert "commit_lock_path()" in content
 
 
 class TestSignals:

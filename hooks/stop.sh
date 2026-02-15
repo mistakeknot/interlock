@@ -20,6 +20,11 @@ STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null) ||
 
 SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 
+# Clean up per-session git index file (prevents accumulation)
+if [[ -n "${GIT_INDEX_FILE:-}" && -f "${GIT_INDEX_FILE}" ]]; then
+    rm -f "${GIT_INDEX_FILE}" 2>/dev/null || true
+fi
+
 # Delegate cleanup to helper script (best effort)
 "${SCRIPT_DIR}/../scripts/interlock-cleanup.sh" \
     "$INTERMUTE_AGENT_ID" "$SESSION_ID" 2>/dev/null || true

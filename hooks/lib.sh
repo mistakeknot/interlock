@@ -45,3 +45,23 @@ agent_file_path() {
 connected_flag_path() {
     echo "/tmp/interlock-connected-${1}"
 }
+
+# git_root returns the git repository root, or empty string.
+git_root() {
+    git rev-parse --show-toplevel 2>/dev/null || echo ""
+}
+
+# session_index_path returns the per-session git index file path.
+# Usage: session_index_path <session_id>
+session_index_path() {
+    local root
+    root=$(git_root)
+    [[ -n "$root" ]] && echo "${root}/.git/index-${1}" || echo ""
+}
+
+# commit_lock_path returns the flock file path for serialized commits.
+commit_lock_path() {
+    local root
+    root=$(git_root)
+    [[ -n "$root" ]] && echo "${root}/.git/commit.lock" || echo ""
+}

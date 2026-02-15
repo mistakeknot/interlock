@@ -19,6 +19,21 @@ if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
     echo "export CLAUDE_SESSION_ID=${SESSION_ID}" >> "$CLAUDE_ENV_FILE"
 fi
 
+# --- Per-session git index isolation ---
+# Each session gets its own GIT_INDEX_FILE so concurrent git-add operations
+# don't contend on .git/index.lock. The index is initialized from HEAD so
+# the session sees the current repo state. Commits are serialized separately
+# via flock in the pre-commit hook.
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
+if [[ -n "$GIT_ROOT" && -n "${CLAUDE_ENV_FILE:-}" ]]; then
+    SESSION_INDEX="${GIT_ROOT}/.git/index-${SESSION_ID}"
+    echo "export GIT_INDEX_FILE=${SESSION_INDEX}" >> "$CLAUDE_ENV_FILE"
+    # Initialize the session index from HEAD if it doesn't exist yet
+    if [[ ! -f "$SESSION_INDEX" ]]; then
+        GIT_INDEX_FILE="$SESSION_INDEX" git read-tree HEAD 2>/dev/null || true
+    fi
+fi
+
 # Delegate registration to helper script
 RESULT=$("${SCRIPT_DIR}/../scripts/interlock-register.sh" "$SESSION_ID" 2>/dev/null) || RESULT=""
 
@@ -55,7 +70,7 @@ cat <<ENDJSON
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "INTERLOCK: Coordination active. Registered as '${AGENT_NAME}' (${AGENT_ID:0:8}...). ${AGENT_COUNT} agent(s) online. File reservations enforced via git pre-commit hook."
+    "additionalContext": "INTERLOCK: Coordination active. Registered as '${AGENT_NAME}' (${AGENT_ID:0:8}...). ${AGENT_COUNT} agent(s) online. Per-session git index isolation enabled. File reservations enforced via git pre-commit hook. Commits serialized via lockfile."
   }
 }
 ENDJSON

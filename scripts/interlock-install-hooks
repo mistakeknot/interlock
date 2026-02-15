@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# interlock-install-hooks — Install the interlock git pre-commit hook.
+# interlock-install-hooks — Install interlock git hooks (pre-commit + post-commit).
 # Handles existing hooks by detecting an INTERLOCK_HOOK_MARKER comment.
 
 MARKER="# INTERLOCK_HOOK_MARKER"
@@ -12,58 +12,74 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 
 HOOKS_DIR="${GIT_ROOT}/.git/hooks"
-HOOK_PATH="${HOOKS_DIR}/pre-commit"
-BACKUP_PATH="${HOOKS_DIR}/pre-commit.interlock-backup"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve template locations
 if [[ -n "${INTERLOCK_ROOT:-}" ]]; then
-    TEMPLATE="${INTERLOCK_ROOT}/scripts/interlock-precommit-hook"
+    PRECOMMIT_TEMPLATE="${INTERLOCK_ROOT}/scripts/interlock-precommit-hook"
+    POSTCOMMIT_TEMPLATE="${INTERLOCK_ROOT}/scripts/interlock-postcommit-hook"
 else
-    TEMPLATE="${SCRIPT_DIR}/interlock-precommit-hook"
+    PRECOMMIT_TEMPLATE="${SCRIPT_DIR}/interlock-precommit-hook"
+    POSTCOMMIT_TEMPLATE="${SCRIPT_DIR}/interlock-postcommit-hook"
 fi
 
-if [[ ! -f "$TEMPLATE" ]]; then
-    echo "ERROR: Hook template not found at ${TEMPLATE}" >&2
+if [[ ! -f "$PRECOMMIT_TEMPLATE" ]]; then
+    echo "ERROR: Pre-commit hook template not found at ${PRECOMMIT_TEMPLATE}" >&2
     exit 1
 fi
 
 mkdir -p "$HOOKS_DIR"
 
-if [[ -f "$HOOK_PATH" ]]; then
-    if grep -q "$MARKER" "$HOOK_PATH" 2>/dev/null; then
-        echo "Replacing existing interlock pre-commit hook..."
-        cp "$TEMPLATE" "$HOOK_PATH"
-        chmod +x "$HOOK_PATH"
-        echo "Done. Hook updated at ${HOOK_PATH}"
-        exit 0
-    else
-        echo "Existing pre-commit hook detected. Backing up to ${BACKUP_PATH}..."
-        cp "$HOOK_PATH" "$BACKUP_PATH"
-        chmod +x "$BACKUP_PATH"
-        {
-            echo "#!/usr/bin/env bash"
-            echo "$MARKER"
-            echo "# Wrapper: runs original hook first, then interlock conflict check."
-            echo ""
-            echo "if [[ -x \"${BACKUP_PATH}\" ]]; then"
-            echo "    \"${BACKUP_PATH}\""
-            echo "    ORIG_EXIT=\$?"
-            echo "    if [[ \$ORIG_EXIT -ne 0 ]]; then"
-            echo "        exit \$ORIG_EXIT"
-            echo "    fi"
-            echo "fi"
-            echo ""
-            tail -n +3 "$TEMPLATE"
-        } > "$HOOK_PATH"
-        chmod +x "$HOOK_PATH"
-        echo "Done. Wrapper hook installed at ${HOOK_PATH}"
-        echo "  Original hook preserved at ${BACKUP_PATH}"
-        exit 0
+# --- Install pre-commit hook ---
+install_hook() {
+    local hook_name="$1"
+    local template="$2"
+    local hook_path="${HOOKS_DIR}/${hook_name}"
+    local backup_path="${HOOKS_DIR}/${hook_name}.interlock-backup"
+
+    if [[ ! -f "$template" ]]; then
+        echo "SKIP: ${hook_name} template not found at ${template}" >&2
+        return 0
     fi
-else
-    echo "Installing interlock pre-commit hook..."
-    cp "$TEMPLATE" "$HOOK_PATH"
-    chmod +x "$HOOK_PATH"
-    echo "Done. Hook installed at ${HOOK_PATH}"
-    exit 0
-fi
+
+    if [[ -f "$hook_path" ]]; then
+        if grep -q "$MARKER" "$hook_path" 2>/dev/null; then
+            echo "Replacing existing interlock ${hook_name} hook..."
+            cp "$template" "$hook_path"
+            chmod +x "$hook_path"
+            echo "  Updated at ${hook_path}"
+        else
+            echo "Existing ${hook_name} hook detected. Backing up to ${backup_path}..."
+            cp "$hook_path" "$backup_path"
+            chmod +x "$backup_path"
+            {
+                echo "#!/usr/bin/env bash"
+                echo "$MARKER"
+                echo "# Wrapper: runs original hook first, then interlock."
+                echo ""
+                echo "if [[ -x \"${backup_path}\" ]]; then"
+                echo "    \"${backup_path}\""
+                echo "    ORIG_EXIT=\$?"
+                echo "    if [[ \$ORIG_EXIT -ne 0 ]]; then"
+                echo "        exit \$ORIG_EXIT"
+                echo "    fi"
+                echo "fi"
+                echo ""
+                tail -n +3 "$template"
+            } > "$hook_path"
+            chmod +x "$hook_path"
+            echo "  Wrapper installed at ${hook_path}"
+            echo "  Original preserved at ${backup_path}"
+        fi
+    else
+        echo "Installing interlock ${hook_name} hook..."
+        cp "$template" "$hook_path"
+        chmod +x "$hook_path"
+        echo "  Installed at ${hook_path}"
+    fi
+}
+
+install_hook "pre-commit" "$PRECOMMIT_TEMPLATE"
+install_hook "post-commit" "$POSTCOMMIT_TEMPLATE"
+
+echo "Done. Interlock git hooks installed."

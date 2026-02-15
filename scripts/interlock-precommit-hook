@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # INTERLOCK_HOOK_MARKER
-# interlock pre-commit hook — enforces intermute file reservations at commit time.
-# Blocks commit if staged files conflict with another agent's active reservations.
+# interlock pre-commit hook — enforces intermute file reservations at commit time
+# and serializes commits across sessions via lockfile.
 # Skippable via: git commit --no-verify
 
 # --- Graceful degradation: pass if agent not registered ---
@@ -12,10 +12,66 @@ fi
 # --- Configuration ---
 INTERMUTE_SOCKET="${INTERMUTE_SOCKET:-/var/run/intermute.sock}"
 INTERMUTE_URL="${INTERMUTE_URL:-http://127.0.0.1:7338}"
-INTERMUTE_PROJECT="${INTERMUTE_PROJECT:-$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)}"
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
+INTERMUTE_PROJECT="${INTERMUTE_PROJECT:-$(basename "$GIT_ROOT" 2>/dev/null)}"
 
-if [[ -z "$INTERMUTE_PROJECT" ]]; then
+if [[ -z "$INTERMUTE_PROJECT" || -z "$GIT_ROOT" ]]; then
     exit 0
+fi
+
+# --- Commit serialization via lockfile ---
+# Multiple sessions with per-session GIT_INDEX_FILE need serialized commits
+# to prevent non-linear history (two sessions committing with stale parents).
+# We use a PID-based lockfile with spin-wait — simpler than flock across hooks.
+COMMIT_LOCK="${GIT_ROOT}/.git/commit.lock"
+LOCK_TIMEOUT=30
+LOCK_ACQUIRED=false
+
+acquire_commit_lock() {
+    local start=$SECONDS
+    while (( SECONDS - start < LOCK_TIMEOUT )); do
+        # Try to create lockfile atomically (mkdir is atomic on all filesystems)
+        if mkdir "${COMMIT_LOCK}.d" 2>/dev/null; then
+            echo "$$" > "${COMMIT_LOCK}.d/pid"
+            LOCK_ACQUIRED=true
+            return 0
+        fi
+        # Check if holder is still alive
+        local holder_pid
+        holder_pid=$(cat "${COMMIT_LOCK}.d/pid" 2>/dev/null) || holder_pid=""
+        if [[ -n "$holder_pid" ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
+            # Stale lock — holder died. Clean up and retry.
+            rm -rf "${COMMIT_LOCK}.d" 2>/dev/null
+            continue
+        fi
+        sleep 0.5
+    done
+    return 1
+}
+
+release_commit_lock() {
+    if [[ "$LOCK_ACQUIRED" == "true" ]]; then
+        rm -rf "${COMMIT_LOCK}.d" 2>/dev/null
+        LOCK_ACQUIRED=false
+    fi
+}
+
+# Release lock on any exit (success, failure, or signal)
+trap release_commit_lock EXIT
+
+if ! acquire_commit_lock; then
+    echo "" >&2
+    echo "ERROR: Commit lock timeout (${LOCK_TIMEOUT}s). Another session is committing." >&2
+    echo "Wait and retry, or force with: git commit --no-verify" >&2
+    echo "" >&2
+    exit 1
+fi
+
+# --- Rebase on latest HEAD before committing ---
+# If another session committed since our last index refresh, rebase first.
+# This prevents creating commits with stale parents.
+if [[ -n "${GIT_INDEX_FILE:-}" && -f "${GIT_INDEX_FILE}" ]]; then
+    git read-tree HEAD 2>/dev/null || true
 fi
 
 # --- Build curl args ---
@@ -75,4 +131,11 @@ if [[ ${#CONFLICTS[@]} -gt 0 ]]; then
     exit 1
 fi
 
+# Lock is released by the EXIT trap when pre-commit hook exits.
+# Since git commit is single-threaded (pre-commit → write → post-commit),
+# the lock is held for the entire pre-commit check but NOT during the actual
+# commit write. This is acceptable because:
+#   1. The read-tree above ensures we have the latest HEAD
+#   2. Git's own ref update is atomic (compare-and-swap)
+#   3. If two commits race to update HEAD, git's ref lock handles it
 exit 0

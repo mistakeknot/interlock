@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# INTERLOCK_HOOK_MARKER
+# interlock post-commit hook — refreshes session index and broadcasts commit event.
+# Part of multi-session coordination: after a commit, other sessions need to know.
+
+# --- Graceful degradation: skip if agent not registered ---
+if [[ -z "${INTERMUTE_AGENT_ID:-}" ]]; then
+    exit 0
+fi
+
+# --- Configuration ---
+INTERMUTE_SOCKET="${INTERMUTE_SOCKET:-/var/run/intermute.sock}"
+INTERMUTE_URL="${INTERMUTE_URL:-http://127.0.0.1:7338}"
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
+INTERMUTE_PROJECT="${INTERMUTE_PROJECT:-$(basename "$GIT_ROOT" 2>/dev/null)}"
+
+if [[ -z "$GIT_ROOT" ]]; then
+    exit 0
+fi
+
+# --- Refresh session index from HEAD ---
+# After our commit, HEAD has advanced. Refresh our per-session index so
+# subsequent git-add operations see the new state.
+if [[ -n "${GIT_INDEX_FILE:-}" ]]; then
+    git read-tree HEAD 2>/dev/null || true
+fi
+
+# --- Gather commit details ---
+COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null) || COMMIT_HASH=""
+COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null) || COMMIT_SHORT=""
+CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null) || CHANGED_FILES=""
+COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null) || COMMIT_MSG=""
+
+# --- Emit signal for interline statusline ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIGNAL_SCRIPT="${SCRIPT_DIR}/interlock-signal.sh"
+if [[ -x "$SIGNAL_SCRIPT" ]]; then
+    FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo "0")
+    bash "$SIGNAL_SCRIPT" release "committed ${COMMIT_SHORT} (${FILE_COUNT} files): ${COMMIT_MSG}" 2>/dev/null || true
+fi
+
+# --- Remaining steps need jq and Intermute ---
+if [[ -z "$INTERMUTE_PROJECT" ]] || ! command -v jq &>/dev/null; then
+    exit 0
+fi
+
+# Build curl args (shared by auto-release and broadcast)
+CURL_BASE=(curl -sf --max-time 5)
+if [[ -n "${INTERMUTE_SOCKET:-}" && -S "${INTERMUTE_SOCKET}" ]]; then
+    CURL_BASE+=(--unix-socket "$INTERMUTE_SOCKET")
+    BASE_URL="http://localhost"
+else
+    BASE_URL="$INTERMUTE_URL"
+fi
+
+# --- Auto-release reservations for committed files ---
+# After committing, our file reservations are no longer needed — release them
+# so other agents can claim them.
+OUR_RESERVATIONS=$("${CURL_BASE[@]}" "${BASE_URL}/api/reservations?agent=${INTERMUTE_AGENT_ID}" 2>/dev/null) || OUR_RESERVATIONS=""
+
+if [[ -n "$OUR_RESERVATIONS" && -n "$CHANGED_FILES" ]]; then
+    # Build a lookup of committed files for matching
+    while IFS= read -r committed_file; do
+        [[ -z "$committed_file" ]] && continue
+        # Find reservations that match this committed file (exact path or glob prefix)
+        MATCHING_IDS=$(echo "$OUR_RESERVATIONS" | jq -r --arg path "$committed_file" '
+            .reservations[]?
+            | select(.is_active == true)
+            | select(
+                (.path_pattern == $path) or
+                ($path | startswith(.path_pattern | rtrimstr("*")))
+            )
+            | .id
+        ' 2>/dev/null) || MATCHING_IDS=""
+
+        while IFS= read -r res_id; do
+            [[ -z "$res_id" ]] && continue
+            "${CURL_BASE[@]}" -X DELETE "${BASE_URL}/api/reservations/${res_id}" 2>/dev/null || true
+        done <<< "$MATCHING_IDS"
+    done <<< "$CHANGED_FILES"
+fi
+
+# --- Broadcast commit event to other agents ---
+# List other agents in this project
+AGENTS=$("${CURL_BASE[@]}" "${BASE_URL}/api/agents?project=$(printf '%s' "$INTERMUTE_PROJECT" | jq -sRr @uri)" 2>/dev/null) || {
+    # Intermute unreachable — skip broadcast, index refresh already done
+    exit 0
+}
+
+# Extract agent IDs, excluding ourselves
+OTHER_AGENTS=$(echo "$AGENTS" | jq -r --arg self "$INTERMUTE_AGENT_ID" \
+    '[.agents[]? | select(.id != $self) | .id] | if length > 0 then . else empty end' 2>/dev/null) || OTHER_AGENTS=""
+
+if [[ -z "$OTHER_AGENTS" || "$OTHER_AGENTS" == "null" ]]; then
+    # No other agents online — nothing to broadcast
+    exit 0
+fi
+
+# Build commit notification message
+FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null) || FILES_JSON="[]"
+BODY=$(jq -nc \
+    --arg hash "$COMMIT_HASH" \
+    --arg short "$COMMIT_SHORT" \
+    --arg msg "$COMMIT_MSG" \
+    --argjson files "$FILES_JSON" \
+    '{type:"commit",hash:$hash,short:$short,message:$msg,files:$files}')
+
+# Send message to all other agents
+MSG_PAYLOAD=$(jq -nc \
+    --arg from "$INTERMUTE_AGENT_ID" \
+    --argjson to "$OTHER_AGENTS" \
+    --arg project "$INTERMUTE_PROJECT" \
+    --arg subject "commit:${COMMIT_SHORT}" \
+    --arg body "$BODY" \
+    '{from:$from,to:$to,project:$project,subject:$subject,body:$body}')
+
+"${CURL_BASE[@]}" -X POST \
+    -H "Content-Type: application/json" \
+    -d "$MSG_PAYLOAD" \
+    "${BASE_URL}/api/messages" 2>/dev/null || true
+
+exit 0
