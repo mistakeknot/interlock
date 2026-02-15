@@ -1,6 +1,6 @@
 {
   "name": "interlock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for intermute file reservation and agent coordination. 9 tools: reserve, release, conflict check, messaging, agent listing. Companion plugin for Clavain.",
   "author": {
     "name": "mistakeknot"
