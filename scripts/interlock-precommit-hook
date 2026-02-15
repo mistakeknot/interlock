@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# INTERLOCK_HOOK_MARKER
+# interlock pre-commit hook — enforces intermute file reservations at commit time.
+# Blocks commit if staged files conflict with another agent's active reservations.
+# Skippable via: git commit --no-verify
+
+# --- Graceful degradation: pass if agent not registered ---
+if [[ -z "${INTERMUTE_AGENT_ID:-}" ]]; then
+    exit 0
+fi
+
+# --- Configuration ---
+INTERMUTE_SOCKET="${INTERMUTE_SOCKET:-/var/run/intermute.sock}"
+INTERMUTE_URL="${INTERMUTE_URL:-http://127.0.0.1:7338}"
+INTERMUTE_PROJECT="${INTERMUTE_PROJECT:-$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)}"
+
+if [[ -z "$INTERMUTE_PROJECT" ]]; then
+    exit 0
+fi
+
+# --- Build curl args ---
+CURL_BASE=(curl -sf --max-time 5)
+if [[ -S "$INTERMUTE_SOCKET" ]]; then
+    CURL_BASE+=(--unix-socket "$INTERMUTE_SOCKET")
+    BASE_URL="http://localhost"
+else
+    BASE_URL="$INTERMUTE_URL"
+fi
+
+# --- Get staged files ---
+STAGED_FILES=$(git diff --cached --name-only 2>/dev/null)
+if [[ -z "$STAGED_FILES" ]]; then
+    exit 0
+fi
+
+# --- Fetch active reservations ---
+RESERVATIONS=$("${CURL_BASE[@]}" "${BASE_URL}/api/reservations?project=$(printf '%s' "$INTERMUTE_PROJECT" | jq -sRr @uri)" 2>/dev/null) || {
+    # intermute unreachable — pass through
+    exit 0
+}
+
+# --- Check each staged file ---
+CONFLICTS=()
+
+while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+
+    while IFS='|' read -r res_agent_id res_pattern res_reason res_expires res_active; do
+        [[ "$res_active" != "true" ]] && continue
+        [[ "$res_agent_id" == "$INTERMUTE_AGENT_ID" ]] && continue
+
+        # Match file against glob pattern
+        # shellcheck disable=SC2254
+        case "$file" in
+            $res_pattern)
+                reason_str=""
+                [[ -n "$res_reason" && "$res_reason" != "null" ]] && reason_str=": \"${res_reason}\""
+                CONFLICTS+=("  - ${file} (reserved by ${res_agent_id}${reason_str})")
+                break
+                ;;
+        esac
+    done < <(echo "$RESERVATIONS" | jq -r '.reservations[]? | "\(.agent_id)|\(.path_pattern)|\(.reason // "")|\(.expires_at)|\(.is_active)"' 2>/dev/null)
+done <<< "$STAGED_FILES"
+
+# --- Report ---
+if [[ ${#CONFLICTS[@]} -gt 0 ]]; then
+    echo "" >&2
+    echo "ERROR: Cannot commit. Reserved files detected:" >&2
+    for conflict in "${CONFLICTS[@]}"; do
+        echo "$conflict" >&2
+    done
+    echo "" >&2
+    echo "Resolve: (1) /interlock:request-release, (2) wait for expiry, (3) git commit --no-verify (risk: overwrite)" >&2
+    echo "" >&2
+    exit 1
+fi
+
+exit 0

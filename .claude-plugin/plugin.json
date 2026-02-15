@@ -1,0 +1,28 @@
+{
+  "name": "interlock",
+  "version": "0.1.0",
+  "description": "MCP server for intermute file reservation and agent coordination. 9 tools: reserve, release, conflict check, messaging, agent listing. Companion plugin for Clavain.",
+  "author": {
+    "name": "mistakeknot"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "file-reservation",
+    "agent-coordination",
+    "intermute",
+    "multi-agent",
+    "conflict-prevention"
+  ],
+  "mcpServers": {
+    "interlock": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/interlock-mcp",
+      "args": [],
+      "env": {
+        "INTERMUTE_SOCKET": "/var/run/intermute.sock",
+        "INTERMUTE_URL": "http://127.0.0.1:7338"
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+---
+name: join
+description: Register this agent for multi-agent coordination — sets name, creates onboarding flag, shows active agents
+argument-hint: "[--name <label>]"
+---
+
+Register this agent for multi-agent file coordination via intermute.
+
+## Steps
+
+1. **Parse arguments.** Check `$ARGUMENTS` for `--name <label>`. If present, use `<label>` as the agent name. Otherwise:
+   - Try tmux pane title: `tmux display-message -p '#T' 2>/dev/null`
+   - Fallback: `claude-${CLAUDE_SESSION_ID:0:8}`
+
+2. **Ensure config directory:** `mkdir -p ~/.config/clavain`
+
+3. **Check intermute health.** Try Unix socket first, then TCP:
+   ```bash
+   INTERMUTE_SOCKET="${INTERMUTE_SOCKET:-/var/run/intermute.sock}"
+   INTERMUTE_URL="${INTERMUTE_URL:-http://127.0.0.1:7338}"
+   if [ -S "$INTERMUTE_SOCKET" ]; then
+       curl -sf --unix-socket "$INTERMUTE_SOCKET" http://localhost/health
+   else
+       curl -sf "$INTERMUTE_URL/health"
+   fi
+   ```
+   If unreachable, tell the user to run `/interlock:setup` first and stop.
+
+4. **Register agent** by calling `POST /api/agents` with the resolved name and session ID.
+
+5. **Create flag files:**
+   ```bash
+   touch ~/.config/clavain/intermute-joined
+   echo "$AGENT_NAME" > ~/.config/clavain/intermute-agent-name
+   ```
+
+6. **List active agents** via `GET /api/agents` and display as a table showing name, agent ID (short), and status.
+
+7. **Report:** Coordination is now active. SessionStart hook will auto-register on future sessions. The git pre-commit hook enforces file reservations.

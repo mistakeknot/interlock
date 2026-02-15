@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# interlock-install-hooks — Install the interlock git pre-commit hook.
+# Handles existing hooks by detecting an INTERLOCK_HOOK_MARKER comment.
+
+MARKER="# INTERLOCK_HOOK_MARKER"
+
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "ERROR: Not inside a git repository." >&2
+    exit 1
+}
+
+HOOKS_DIR="${GIT_ROOT}/.git/hooks"
+HOOK_PATH="${HOOKS_DIR}/pre-commit"
+BACKUP_PATH="${HOOKS_DIR}/pre-commit.interlock-backup"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${INTERLOCK_ROOT:-}" ]]; then
+    TEMPLATE="${INTERLOCK_ROOT}/scripts/interlock-precommit-hook"
+else
+    TEMPLATE="${SCRIPT_DIR}/interlock-precommit-hook"
+fi
+
+if [[ ! -f "$TEMPLATE" ]]; then
+    echo "ERROR: Hook template not found at ${TEMPLATE}" >&2
+    exit 1
+fi
+
+mkdir -p "$HOOKS_DIR"
+
+if [[ -f "$HOOK_PATH" ]]; then
+    if grep -q "$MARKER" "$HOOK_PATH" 2>/dev/null; then
+        echo "Replacing existing interlock pre-commit hook..."
+        cp "$TEMPLATE" "$HOOK_PATH"
+        chmod +x "$HOOK_PATH"
+        echo "Done. Hook updated at ${HOOK_PATH}"
+        exit 0
+    else
+        echo "Existing pre-commit hook detected. Backing up to ${BACKUP_PATH}..."
+        cp "$HOOK_PATH" "$BACKUP_PATH"
+        chmod +x "$BACKUP_PATH"
+        {
+            echo "#!/usr/bin/env bash"
+            echo "$MARKER"
+            echo "# Wrapper: runs original hook first, then interlock conflict check."
+            echo ""
+            echo "if [[ -x \"${BACKUP_PATH}\" ]]; then"
+            echo "    \"${BACKUP_PATH}\""
+            echo "    ORIG_EXIT=\$?"
+            echo "    if [[ \$ORIG_EXIT -ne 0 ]]; then"
+            echo "        exit \$ORIG_EXIT"
+            echo "    fi"
+            echo "fi"
+            echo ""
+            tail -n +3 "$TEMPLATE"
+        } > "$HOOK_PATH"
+        chmod +x "$HOOK_PATH"
+        echo "Done. Wrapper hook installed at ${HOOK_PATH}"
+        echo "  Original hook preserved at ${BACKUP_PATH}"
+        exit 0
+    fi
+else
+    echo "Installing interlock pre-commit hook..."
+    cp "$TEMPLATE" "$HOOK_PATH"
+    chmod +x "$HOOK_PATH"
+    echo "Done. Hook installed at ${HOOK_PATH}"
+    exit 0
+fi
