@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -49,15 +50,15 @@ func WithBaseURL(u string) Option {
 	}
 }
 
-func WithAgentID(id string) Option    { return func(c *Client) { c.agentID = id } }
-func WithProject(name string) Option  { return func(c *Client) { c.project = name } }
-func WithAgentName(n string) Option   { return func(c *Client) { c.agentName = n } }
+func WithAgentID(id string) Option   { return func(c *Client) { c.agentID = id } }
+func WithProject(name string) Option { return func(c *Client) { c.project = name } }
+func WithAgentName(n string) Option  { return func(c *Client) { c.agentName = n } }
 
 // NewClient creates a new intermute client. Socket option is applied first;
 // if it succeeds, it overrides any base URL.
 func NewClient(opts ...Option) *Client {
 	c := &Client{
-		http: &http.Client{Timeout: 10 * time.Second},
+		http:    &http.Client{Timeout: 10 * time.Second},
 		baseURL: "http://127.0.0.1:7338",
 	}
 	for _, o := range opts {
@@ -67,9 +68,11 @@ func NewClient(opts ...Option) *Client {
 }
 
 // AgentID returns the configured agent ID.
-func (c *Client) AgentID() string  { return c.agentID }
+func (c *Client) AgentID() string { return c.agentID }
+
 // Project returns the configured project name.
-func (c *Client) Project() string  { return c.project }
+func (c *Client) Project() string { return c.project }
+
 // AgentName returns the configured agent name.
 func (c *Client) AgentName() string { return c.agentName }
 
@@ -105,11 +108,36 @@ type Agent struct {
 
 // Message represents an inbox message.
 type Message struct {
-	ID        string `json:"message_id"`
-	From      string `json:"from"`
-	Body      string `json:"body"`
-	Timestamp string `json:"timestamp"`
-	Read      bool   `json:"read"`
+	ID          string   `json:"id,omitempty"`
+	MessageID   string   `json:"message_id,omitempty"`
+	From        string   `json:"from,omitempty"`
+	To          []string `json:"to,omitempty"`
+	Body        string   `json:"body,omitempty"`
+	ThreadID    string   `json:"thread_id,omitempty"`
+	Subject     string   `json:"subject,omitempty"`
+	Importance  string   `json:"importance,omitempty"`
+	AckRequired bool     `json:"ack_required,omitempty"`
+	Timestamp   string   `json:"timestamp,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	Read        bool     `json:"read,omitempty"`
+}
+
+// MessageOptions provides optional fields for SendMessageFull.
+type MessageOptions struct {
+	ThreadID    string
+	Subject     string
+	Importance  string
+	AckRequired bool
+}
+
+// NegotiationTimeout describes an expired negotiation that was auto-enforced.
+type NegotiationTimeout struct {
+	ThreadID   string `json:"thread_id"`
+	File       string `json:"file"`
+	Holder     string `json:"holder"`
+	Urgency    string `json:"urgency"`
+	AgeMinutes int    `json:"age_minutes"`
+	Released   int    `json:"released"`
 }
 
 // IntermuteError is a structured error from the intermute API.
@@ -222,11 +250,28 @@ func (c *Client) ListAgents(ctx context.Context) ([]Agent, error) {
 
 // SendMessage sends a message to another agent.
 func (c *Client) SendMessage(ctx context.Context, to, body string) error {
+	return c.SendMessageFull(ctx, to, body, MessageOptions{})
+}
+
+// SendMessageFull sends a message with optional thread/priority metadata.
+func (c *Client) SendMessageFull(ctx context.Context, to, body string, opts MessageOptions) error {
 	msg := map[string]any{
 		"project": c.project,
 		"from":    c.agentID,
 		"to":      []string{to},
 		"body":    body,
+	}
+	if opts.ThreadID != "" {
+		msg["thread_id"] = opts.ThreadID
+	}
+	if opts.Subject != "" {
+		msg["subject"] = opts.Subject
+	}
+	if opts.Importance != "" {
+		msg["importance"] = opts.Importance
+	}
+	if opts.AckRequired {
+		msg["ack_required"] = true
 	}
 	return c.doJSON(ctx, "POST", "/api/messages", msg, nil)
 }
@@ -247,6 +292,192 @@ func (c *Client) FetchInbox(ctx context.Context, cursor string) ([]Message, stri
 		return nil, "", err
 	}
 	return result.Messages, result.NextCursor, nil
+}
+
+// FetchThread fetches all messages in a thread.
+// Falls back to inbox filtering when thread endpoints are unavailable.
+func (c *Client) FetchThread(ctx context.Context, threadID string) ([]Message, error) {
+	if threadID == "" {
+		return make([]Message, 0), nil
+	}
+
+	q := url.Values{}
+	q.Set("project", c.project)
+	path := "/api/threads/" + url.PathEscape(threadID) + "?" + q.Encode()
+	var result struct {
+		Messages []Message `json:"messages"`
+	}
+	err := c.doJSON(ctx, "GET", path, nil, &result)
+	if err == nil {
+		if result.Messages == nil {
+			return make([]Message, 0), nil
+		}
+		return result.Messages, nil
+	}
+	if !isNotFound(err) {
+		return nil, fmt.Errorf("fetch thread %q: %w", threadID, err)
+	}
+
+	// Fallback for older intermute versions: page through inbox and filter.
+	filtered := make([]Message, 0)
+	cursor := ""
+	for {
+		messages, nextCursor, fetchErr := c.FetchInbox(ctx, cursor)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("fetch thread fallback %q: %w", threadID, fetchErr)
+		}
+		for _, msg := range messages {
+			if msg.ThreadID == threadID {
+				filtered = append(filtered, msg)
+			}
+		}
+		if nextCursor == "" || nextCursor == cursor {
+			break
+		}
+		cursor = nextCursor
+	}
+	return filtered, nil
+}
+
+// ReleaseByPattern releases active reservations held by agentID that overlap pattern.
+// Idempotent: returns 0 when nothing matches.
+func (c *Client) ReleaseByPattern(ctx context.Context, agentID, pattern string) (int, error) {
+	reservations, err := c.ListReservations(ctx, map[string]string{
+		"agent":   agentID,
+		"project": c.project,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("list reservations for %q: %w", agentID, err)
+	}
+
+	released := 0
+	for _, r := range reservations {
+		if !r.IsActive || !PatternsOverlap(r.PathPattern, pattern) {
+			continue
+		}
+		if err := c.DeleteReservation(ctx, r.ID); err != nil {
+			return released, fmt.Errorf("delete reservation %q: %w", r.ID, err)
+		}
+		released++
+	}
+	return released, nil
+}
+
+// CheckExpiredNegotiations enforces negotiation timeouts by force-releasing
+// expired release requests that have no release-ack in their thread.
+func (c *Client) CheckExpiredNegotiations(ctx context.Context) ([]NegotiationTimeout, error) {
+	messages := make([]Message, 0)
+	cursor := ""
+	for {
+		page, nextCursor, err := c.FetchInbox(ctx, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("fetch inbox for negotiation timeout: %w", err)
+		}
+		messages = append(messages, page...)
+		if nextCursor == "" || nextCursor == cursor {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	now := time.Now()
+	timeouts := make([]NegotiationTimeout, 0)
+	for _, msg := range messages {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(msg.Body), &payload); err != nil {
+			continue
+		}
+		if stringOr(payload["type"], "") != "release-request" {
+			continue
+		}
+
+		urgency := stringOr(payload["urgency"], msg.Importance)
+		if urgency == "" {
+			continue
+		}
+		if urgency != "urgent" && urgency != "normal" {
+			urgency = "normal"
+		}
+
+		createdAt := msg.CreatedAt
+		if createdAt == "" {
+			createdAt = msg.Timestamp
+		}
+		if createdAt == "" {
+			continue
+		}
+		requestTime, err := parseMessageTime(createdAt)
+		if err != nil {
+			continue
+		}
+
+		timeoutMinutes := 10
+		if urgency == "urgent" {
+			timeoutMinutes = 5
+		}
+		age := now.Sub(requestTime)
+		if age < time.Duration(timeoutMinutes)*time.Minute {
+			continue
+		}
+
+		threadID := msg.ThreadID
+		if threadID == "" {
+			threadID = stringOr(payload["thread_id"], "")
+		}
+		if threadID != "" {
+			threadMessages, threadErr := c.FetchThread(ctx, threadID)
+			if threadErr != nil {
+				return nil, fmt.Errorf("check thread %q for timeout: %w", threadID, threadErr)
+			}
+			if hasReleaseAck(threadMessages) {
+				continue
+			}
+		}
+
+		file := stringOr(payload["file"], "")
+		if file == "" {
+			file = stringOr(payload["pattern"], "")
+		}
+		if file == "" {
+			continue
+		}
+
+		released, err := c.ReleaseByPattern(ctx, c.agentID, file)
+		if err != nil {
+			return nil, fmt.Errorf("force release pattern %q: %w", file, err)
+		}
+
+		ackBody, err := json.Marshal(map[string]any{
+			"type":        "release-ack",
+			"file":        file,
+			"released":    true,
+			"released_by": "timeout",
+			"reason":      "timeout",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal timeout ack for %q: %w", file, err)
+		}
+
+		if msg.From != "" {
+			if err := c.SendMessageFull(ctx, msg.From, string(ackBody), MessageOptions{
+				ThreadID: threadID,
+				Subject:  "release-ack",
+			}); err != nil {
+				return nil, fmt.Errorf("send timeout ack to %q: %w", msg.From, err)
+			}
+		}
+
+		timeouts = append(timeouts, NegotiationTimeout{
+			ThreadID:   threadID,
+			File:       file,
+			Holder:     c.agentID,
+			Urgency:    urgency,
+			AgeMinutes: int(age.Minutes()),
+			Released:   released,
+		})
+	}
+
+	return timeouts, nil
 }
 
 // --- Internal ---
@@ -324,7 +555,7 @@ func (c *Client) checkConflictsFallback(ctx context.Context, pattern string) ([]
 		if r.AgentID == c.agentID || !r.IsActive || !r.Exclusive {
 			continue
 		}
-		if patternsOverlap(r.PathPattern, pattern) {
+		if PatternsOverlap(r.PathPattern, pattern) {
 			conflicts = append(conflicts, ConflictDetail{
 				ReservationID: r.ID,
 				AgentID:       r.AgentID,
@@ -337,25 +568,54 @@ func (c *Client) checkConflictsFallback(ctx context.Context, pattern string) ([]
 	return conflicts, nil
 }
 
-// patternsOverlap does a simple prefix/glob overlap check.
-func patternsOverlap(existing, candidate string) bool {
+// PatternsOverlap does a simple prefix/glob overlap check.
+func PatternsOverlap(existing, candidate string) bool {
 	e := strings.TrimSuffix(existing, "*")
 	c := strings.TrimSuffix(candidate, "*")
 	return strings.HasPrefix(e, c) || strings.HasPrefix(c, e)
 }
 
+// patternsOverlap is kept as an internal alias for legacy callers.
+func patternsOverlap(existing, candidate string) bool {
+	return PatternsOverlap(existing, candidate)
+}
+
 func isNotFound(err error) bool {
 	var ie *IntermuteError
-	if ok := false; err != nil {
-		switch e := err.(type) {
-		case *IntermuteError:
-			ie = e
-			ok = true
-		default:
-			_ = ok
+	if errors.As(err, &ie) {
+		return ie.Code == http.StatusNotFound
+	}
+	return false
+}
+
+func parseMessageTime(ts string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, ts)
+}
+
+func hasReleaseAck(messages []Message) bool {
+	for _, msg := range messages {
+		if msg.Subject == "release-ack" {
+			return true
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(msg.Body), &payload); err != nil {
+			continue
+		}
+		if stringOr(payload["type"], "") == "release-ack" {
+			return true
 		}
 	}
-	return ie != nil && ie.Code == 404
+	return false
+}
+
+func stringOr(v any, def string) string {
+	if s, ok := v.(string); ok && s != "" {
+		return s
+	}
+	return def
 }
 
 func fileExists(path string) bool {

@@ -1,18 +1,47 @@
-// Package tools defines the 9 MCP tools that wrap the intermute HTTP API.
+// Package tools defines the MCP tools that wrap the intermute HTTP API.
 package tools
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/mistakeknot/interlock/internal/client"
 )
 
-// RegisterAll registers all 9 MCP tools with the server.
+const (
+	normalTimeoutMinutes    = 10
+	urgentTimeoutMinutes    = 5
+	negotiationPollInterval = 2 * time.Second
+)
+
+var (
+	timeoutCheckerOnce sync.Once
+	timeoutCheckerStop chan struct{}
+)
+
+// StopTimeoutChecker signals the background timeout-enforcement goroutine to
+// exit. Safe to call even if the goroutine was never started.
+func StopTimeoutChecker() {
+	if timeoutCheckerStop != nil {
+		select {
+		case <-timeoutCheckerStop:
+			// Already closed.
+		default:
+			close(timeoutCheckerStop)
+		}
+	}
+}
+
+// RegisterAll registers all 11 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -24,6 +53,8 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		fetchInbox(c),
 		listAgents(c),
 		requestRelease(c),
+		negotiateRelease(c),
+		respondToRelease(c),
 	)
 }
 
@@ -257,16 +288,23 @@ func fetchInbox(c *client.Client) server.ServerTool {
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("fetch inbox: %v", err)), nil
 			}
+			timeouts, timeoutErr := c.CheckExpiredNegotiations(ctx)
 			if messages == nil {
 				messages = make([]client.Message, 0)
 			}
 			if len(messages) > 0 {
 				emitSignal("message", fmt.Sprintf("received %d message(s)", len(messages)))
 			}
-			return jsonResult(map[string]any{
+			result := map[string]any{
 				"messages":    messages,
 				"next_cursor": nextCursor,
-			})
+			}
+			if timeoutErr != nil {
+				result["negotiation_timeout_error"] = timeoutErr.Error()
+			} else if len(timeouts) > 0 {
+				result["negotiation_timeouts"] = timeouts
+			}
+			return jsonResult(result)
 		},
 	}
 }
@@ -274,7 +312,7 @@ func fetchInbox(c *client.Client) server.ServerTool {
 func requestRelease(c *client.Client) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("request_release",
-			mcp.WithDescription("Ask another agent to release their file reservation."),
+			mcp.WithDescription("[DEPRECATED: use negotiate_release] Ask another agent to release their file reservation."),
 			mcp.WithString("agent_name",
 				mcp.Description("Name or ID of the agent holding the reservation"),
 				mcp.Required(),
@@ -309,6 +347,288 @@ func requestRelease(c *client.Client) server.ServerTool {
 				"sent": true,
 				"to":   agentName,
 				"type": "release-request",
+			})
+		},
+	}
+}
+
+func negotiateRelease(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("negotiate_release",
+			mcp.WithDescription("Request another agent to release their file reservation, with urgency and optional blocking wait."),
+			mcp.WithString("agent_name",
+				mcp.Description("Name or ID of the agent holding the reservation"),
+				mcp.Required(),
+			),
+			mcp.WithString("file",
+				mcp.Description("The file pattern you need released"),
+				mcp.Required(),
+			),
+			mcp.WithString("reason",
+				mcp.Description("Why you need the file"),
+				mcp.Required(),
+			),
+			mcp.WithString("urgency",
+				mcp.Description(fmt.Sprintf("Urgency level: 'normal' (%d minute timeout) or 'urgent' (%d minute timeout). Default: normal", normalTimeoutMinutes, urgentTimeoutMinutes)),
+			),
+			mcp.WithNumber("wait_seconds",
+				mcp.Description("If >0, poll the thread for a response up to this many seconds"),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			timeoutCheckerOnce.Do(func() {
+				timeoutCheckerStop = make(chan struct{})
+				go func() {
+					ticker := time.NewTicker(30 * time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ticker.C:
+							_, _ = c.CheckExpiredNegotiations(context.Background())
+						case <-timeoutCheckerStop:
+							return
+						}
+					}
+				}()
+			})
+
+			args := req.GetArguments()
+			agentName, _ := args["agent_name"].(string)
+			file, _ := args["file"].(string)
+			reason, _ := args["reason"].(string)
+			urgency := stringOr(args["urgency"], "normal")
+			waitSeconds := intOr(args["wait_seconds"], 0)
+
+			if agentName == "" || file == "" || reason == "" {
+				return mcp.NewToolResultError("agent_name, file, and reason are required"), nil
+			}
+			if urgency != "normal" && urgency != "urgent" {
+				return mcp.NewToolResultError("urgency must be 'normal' or 'urgent'"), nil
+			}
+
+			conflicts, err := c.CheckConflicts(ctx, file)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("check conflicts: %v", err)), nil
+			}
+
+			holderID := ""
+			for _, conflict := range conflicts {
+				if conflict.AgentID == agentName || conflict.HeldBy == agentName {
+					holderID = conflict.AgentID
+					break
+				}
+			}
+			if holderID == "" {
+				return mcp.NewToolResultError(fmt.Sprintf("agent %q does not hold a reservation matching %q", agentName, file)), nil
+			}
+
+			threadID := generateNegotiateID()
+			if threadID == "" {
+				return mcp.NewToolResultError("failed to generate negotiation thread ID"), nil
+			}
+			bodyBytes, err := json.Marshal(map[string]any{
+				"type":      "release-request",
+				"file":      file,
+				"reason":    reason,
+				"requester": c.AgentName(),
+				"urgency":   urgency,
+				"thread_id": threadID,
+			})
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("marshal release request: %v", err)), nil
+			}
+
+			importance := "normal"
+			ackRequired := false
+			if urgency == "urgent" {
+				importance = "urgent"
+				ackRequired = true
+			}
+
+			if err := c.SendMessageFull(ctx, holderID, string(bodyBytes), client.MessageOptions{
+				ThreadID:    threadID,
+				Subject:     "release-request",
+				Importance:  importance,
+				AckRequired: ackRequired,
+			}); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("send release negotiation: %v", err)), nil
+			}
+
+			if waitSeconds <= 0 {
+				return jsonResult(map[string]any{
+					"status":    "pending",
+					"thread_id": threadID,
+					"to":        holderID,
+					"urgency":   urgency,
+				})
+			}
+
+			deadline := time.Now().Add(time.Duration(waitSeconds) * time.Second)
+			consecutiveErrors := 0
+			const maxConsecutiveErrors = 3
+			var lastPollErr error
+			for time.Now().Before(deadline) {
+				status, payload, pollErr := pollNegotiationThread(ctx, c, threadID)
+				if pollErr != nil {
+					consecutiveErrors++
+					lastPollErr = pollErr
+					if consecutiveErrors >= maxConsecutiveErrors {
+						return mcp.NewToolResultError(fmt.Sprintf("poll thread %q: %d consecutive errors, last: %v", threadID, consecutiveErrors, lastPollErr)), nil
+					}
+				} else {
+					consecutiveErrors = 0
+					if status != "" {
+						result := map[string]any{
+							"status":    status,
+							"thread_id": threadID,
+						}
+						for k, v := range payload {
+							result[k] = v
+						}
+						return jsonResult(result)
+					}
+				}
+
+				remaining := time.Until(deadline)
+				if remaining <= 0 {
+					break
+				}
+				sleepFor := negotiationPollInterval
+				if remaining < sleepFor {
+					sleepFor = remaining
+				}
+				time.Sleep(sleepFor)
+			}
+
+			// Final check to avoid lost wakeups near the deadline.
+			status, payload, err := pollNegotiationThread(ctx, c, threadID)
+			if err != nil && consecutiveErrors+1 >= maxConsecutiveErrors {
+				return mcp.NewToolResultError(fmt.Sprintf("final poll thread %q: %v", threadID, err)), nil
+			}
+			if status != "" {
+				result := map[string]any{
+					"status":    status,
+					"thread_id": threadID,
+				}
+				for k, v := range payload {
+					result[k] = v
+				}
+				return jsonResult(result)
+			}
+
+			return jsonResult(map[string]any{
+				"status":    "timeout",
+				"thread_id": threadID,
+				"waited":    waitSeconds,
+			})
+		},
+	}
+}
+
+func respondToRelease(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("respond_to_release",
+			mcp.WithDescription("Respond to a release negotiation by releasing now or deferring with an ETA."),
+			mcp.WithString("thread_id",
+				mcp.Description("Negotiation thread ID"),
+				mcp.Required(),
+			),
+			mcp.WithString("requester",
+				mcp.Description("Requester agent ID"),
+				mcp.Required(),
+			),
+			mcp.WithString("action",
+				mcp.Description("Response action: 'release' or 'defer'"),
+				mcp.Required(),
+			),
+			mcp.WithString("file",
+				mcp.Description("The file pattern being negotiated"),
+				mcp.Required(),
+			),
+			mcp.WithNumber("eta_minutes",
+				mcp.Description("For defer only: estimated minutes (max 60)"),
+			),
+			mcp.WithString("reason",
+				mcp.Description("For defer only: why you need more time"),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			threadID, _ := args["thread_id"].(string)
+			requester, _ := args["requester"].(string)
+			action, _ := args["action"].(string)
+			file, _ := args["file"].(string)
+			etaMinutes := intOr(args["eta_minutes"], 0)
+			reason, _ := args["reason"].(string)
+
+			if threadID == "" || requester == "" || action == "" || file == "" {
+				return mcp.NewToolResultError("thread_id, requester, action, and file are required"), nil
+			}
+			if action != "release" && action != "defer" {
+				return mcp.NewToolResultError("action must be 'release' or 'defer'"), nil
+			}
+
+			if action == "release" {
+				released, err := c.ReleaseByPattern(ctx, c.AgentID(), file)
+				if err != nil {
+					return nil, fmt.Errorf("release reservations by pattern: %w", err)
+				}
+
+				bodyBytes, err := json.Marshal(map[string]any{
+					"type":         "release-ack",
+					"file":         file,
+					"released":     true,
+					"released_by":  c.AgentName(),
+					"released_cnt": released,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("marshal release ack: %w", err)
+				}
+				if err := c.SendMessageFull(ctx, requester, string(bodyBytes), client.MessageOptions{
+					ThreadID: threadID,
+					Subject:  "release-ack",
+				}); err != nil {
+					return nil, fmt.Errorf("send release ack: %w", err)
+				}
+
+				return jsonResult(map[string]any{
+					"action":    "release",
+					"thread_id": threadID,
+					"file":      file,
+					"released":  released,
+				})
+			}
+
+			if etaMinutes < 0 {
+				etaMinutes = 0
+			}
+			if etaMinutes > 60 {
+				etaMinutes = 60
+			}
+
+			bodyBytes, err := json.Marshal(map[string]any{
+				"type":        "release-defer",
+				"file":        file,
+				"eta_minutes": etaMinutes,
+				"reason":      reason,
+				"released":    false,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("marshal release defer: %w", err)
+			}
+			if err := c.SendMessageFull(ctx, requester, string(bodyBytes), client.MessageOptions{
+				ThreadID: threadID,
+				Subject:  "release-defer",
+			}); err != nil {
+				return nil, fmt.Errorf("send release defer: %w", err)
+			}
+
+			return jsonResult(map[string]any{
+				"action":      "defer",
+				"thread_id":   threadID,
+				"file":        file,
+				"eta_minutes": etaMinutes,
+				"reason":      reason,
 			})
 		},
 	}
@@ -376,6 +696,56 @@ func boolOr(v any, def bool) bool {
 		return b
 	}
 	return def
+}
+
+func stringOr(v any, def string) string {
+	if s, ok := v.(string); ok && s != "" {
+		return s
+	}
+	return def
+}
+
+var negotiateIDCounter atomic.Uint64
+
+func generateNegotiateID() string {
+	b := make([]byte, 16)
+	if _, err := crand.Read(b); err != nil {
+		count := negotiateIDCounter.Add(1)
+		return fmt.Sprintf("negotiate-fallback-%d-%d-%d", time.Now().UnixNano(), os.Getpid(), count)
+	}
+	return fmt.Sprintf("negotiate-%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func pollNegotiationThread(ctx context.Context, c *client.Client, threadID string) (string, map[string]any, error) {
+	messages, err := c.FetchThread(ctx, threadID)
+	if err != nil {
+		return "", nil, fmt.Errorf("fetch thread: %w", err)
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		msgType := msg.Subject
+
+		var body map[string]any
+		if err := json.Unmarshal([]byte(msg.Body), &body); err == nil {
+			if t := stringOr(body["type"], ""); t != "" {
+				msgType = t
+			}
+		}
+
+		switch msgType {
+		case "release-ack":
+			return "released", map[string]any{
+				"released_by": stringOr(body["released_by"], msg.From),
+				"reason":      stringOr(body["reason"], ""),
+			}, nil
+		case "release-defer":
+			return "deferred", map[string]any{
+				"eta_minutes": intOr(body["eta_minutes"], 0),
+				"reason":      stringOr(body["reason"], ""),
+			}, nil
+		}
+	}
+	return "", nil, nil
 }
 
 // emitSignal fires the signal script in the background (fire-and-forget).

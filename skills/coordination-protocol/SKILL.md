@@ -40,6 +40,8 @@ Interlock provides file-level coordination for multi-agent sessions. Core princi
 | `send_message` | Send a message to another agent |
 | `fetch_inbox` | Check messages from other agents |
 | `request_release` | Ask another agent to release their reservation |
+| `negotiate_release` | Request release with urgency, thread tracking, and optional wait |
+| `respond_to_release` | Reply to a negotiation by releasing now or deferring with ETA |
 
 ## Best Practices
 

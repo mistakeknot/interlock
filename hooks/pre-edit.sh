@@ -62,6 +62,50 @@ ENDJSON
     fi
 fi
 
+# --- Check inbox for release-request messages (advisory, feature-flagged) ---
+if [[ "${INTERLOCK_AUTO_RELEASE:-0}" == "1" ]]; then
+    NEG_FLAG=$(negotiation_check_path "$SESSION_ID")
+    if [[ ! -f "$NEG_FLAG" ]] || ! find "$NEG_FLAG" -mmin -0.5 -print -quit 2>/dev/null | grep -q .; then
+        touch "$NEG_FLAG" 2>/dev/null || true
+
+        # Fetch inbox with circuit breaker (fail-open on timeout/error)
+        NEG_INBOX=$(intermute_curl_fast GET "/api/messages/inbox?agent=${INTERMUTE_AGENT_ID}&unread=true&limit=50" 2>/dev/null) || NEG_INBOX=""
+
+        if [[ -n "$NEG_INBOX" ]]; then
+            # Find release-request messages
+            RELEASE_REQS=$(echo "$NEG_INBOX" | jq -r '
+                [.messages[]? | select(
+                    (.subject // "") == "release-request" or
+                    ((.body // "") | try fromjson | .type) == "release-request"
+                )] | if length > 0 then . else empty end
+            ' 2>/dev/null) || RELEASE_REQS=""
+
+            if [[ -n "$RELEASE_REQS" && "$RELEASE_REQS" != "null" ]]; then
+                # Build advisory context -- tell agent about pending release requests
+                ADVISORY=""
+                while IFS= read -r req_msg; do
+                    REQ_BODY=$(echo "$req_msg" | jq -r '.body // ""' 2>/dev/null) || continue
+                    REQ_FILE=$(echo "$REQ_BODY" | jq -r 'try fromjson | .file // .pattern // empty' 2>/dev/null) || continue
+                    REQ_THREAD=$(echo "$req_msg" | jq -r '.thread_id // empty' 2>/dev/null) || REQ_THREAD=""
+                    REQ_FROM=$(echo "$req_msg" | jq -r '.from // empty' 2>/dev/null) || REQ_FROM=""
+                    REQ_URGENCY=$(echo "$REQ_BODY" | jq -r 'try fromjson | .urgency // "normal"' 2>/dev/null) || REQ_URGENCY="normal"
+
+                    [[ -z "$REQ_FILE" ]] && continue
+
+                    ADVISORY="${ADVISORY}${REQ_FROM} requests release of ${REQ_FILE} (urgency: ${REQ_URGENCY}). "
+                    if [[ -n "$REQ_THREAD" ]]; then
+                        ADVISORY="${ADVISORY}Use respond_to_release(thread_id='${REQ_THREAD}', requester='${REQ_FROM}', action='release', file='${REQ_FILE}') to release, or action='defer' to request more time. "
+                    fi
+                done < <(echo "$RELEASE_REQS" | jq -c '.[]' 2>/dev/null)
+
+                if [[ -n "${ADVISORY:-}" ]]; then
+                    jq -nc --arg ctx "INTERLOCK: ${ADVISORY}" '{"additionalContext": $ctx}'
+                fi
+            fi
+        fi
+    fi
+fi
+
 # Make file path relative to project root
 REL_PATH="$FILE_PATH"
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || PROJECT_ROOT=""

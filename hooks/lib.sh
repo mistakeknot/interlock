@@ -71,3 +71,14 @@ commit_lock_path() {
 inbox_check_path() {
     echo "/tmp/interlock-pull-checked-${1}"
 }
+
+# negotiation_check_path returns the throttle flag for release-request inbox checks.
+negotiation_check_path() {
+    echo "/tmp/interlock-negotiate-checked-${1}"
+}
+
+# intermute_curl_fast wraps intermute_curl with --max-time 2 for hook-critical paths.
+intermute_curl_fast() {
+    local method="$1"; shift
+    intermute_curl "$method" "$@" --max-time 2
+}

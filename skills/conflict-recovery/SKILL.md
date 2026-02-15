@@ -26,7 +26,7 @@ Call `check_conflicts` or run `/interlock:status` to see:
 If other unreserved files need attention, work on those first. The reservation may expire or be released while you work. Call `my_reservations` to see what you already hold.
 
 ### Step 3: Request Release
-Call `request_release` with the holding agent's name or ID. This sends a message asking them to release. The other agent's `fetch_inbox` will surface your request. Wait 1-2 minutes for a response before escalating.
+Call `negotiate_release` with the holding agent's name/ID, file pattern, and reason. Use `urgency='urgent'` only when truly blocking critical work. For blocking-wait mode, set `wait_seconds` (for example `wait_seconds=120`) so the call polls the negotiation thread before returning.
 
 ### Step 4: Wait for Expiry
 Check the `expires_at` timestamp from Step 1. If expiry is <5 minutes away, wait it out. Stale reservations are auto-cleaned by intermute every 60 seconds.
@@ -43,7 +43,7 @@ If the reservation holder is unresponsive and the work is urgent:
 |------|-------------|
 | `check_conflicts` | Step 1: see who holds the file |
 | `list_agents` | Identify the holding agent |
-| `request_release` | Step 3: ask them to release |
+| `negotiate_release` | Step 3: ask them to release (optionally wait with `wait_seconds`) |
 | `fetch_inbox` | Check if they responded |
 
 ## Common Mistakes

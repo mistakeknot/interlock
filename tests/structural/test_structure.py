@@ -54,11 +54,12 @@ class TestMCPTools:
         "reserve_files", "release_files", "release_all",
         "check_conflicts", "my_reservations",
         "send_message", "fetch_inbox", "list_agents", "request_release",
+        "negotiate_release", "respond_to_release",
     ])
 
     def test_tool_count(self, project_root):
         names = self._find_tool_names(project_root)
-        assert len(names) == 9, f"Expected 9 tools, found {len(names)}: {names}"
+        assert len(names) == 11, f"Expected 11 tools, found {len(names)}: {names}"
 
     def test_tool_names(self, project_root):
         names = self._find_tool_names(project_root)
@@ -187,7 +188,8 @@ class TestSkills:
     def test_coordination_references_all_tools(self, project_root):
         content = (project_root / "skills" / "coordination-protocol" / "SKILL.md").read_text()
         for tool in ["reserve_files", "release_files", "release_all", "check_conflicts",
-                      "my_reservations", "send_message", "fetch_inbox", "list_agents", "request_release"]:
+                      "my_reservations", "send_message", "fetch_inbox", "list_agents",
+                      "request_release", "negotiate_release", "respond_to_release"]:
             assert tool in content, f"Missing tool reference: {tool}"
 
 
