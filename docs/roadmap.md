@@ -1,43 +1,59 @@
 # Interlock Roadmap
 
-**Version:** 0.1.0
+**Version:** 0.1.1
 **Last updated:** 2026-02-15
 **Vision:** [`docs/vision.md`](vision.md)
 **PRD:** [`docs/PRD.md`](PRD.md)
 
 ## Where We Are
 
-Interlock is a shipped Clavain companion with a complete operational baseline: MCP coordination tools, session lifecycle hooks, and mandatory commit-time safety checks.
+Interlock has shipped Phase 1+2 of multi-session coordination: per-session git index isolation, commit serialization, blocking edit enforcement, and automatic file reservation. The system now provides a complete safety layer from first edit through commit.
 
 ## What's Working
 
 - MCP server is shipped and wired to `intermute` with 9 tools for reservation, messaging, and discovery.
-- File coordination hooks are installed: `SessionStart` auto-registration, advisory `PreToolUse:Edit`, and `Stop` cleanup.
-- Git pre-commit enforcement is installed via `interlock-install-hooks` and blocks commits when staged files conflict with active reservations.
-- User-facing command surface is available: `/interlock:join`, `/interlock:leave`, `/interlock:status`, `/interlock:setup`.
-- Advisory recovery guidance is documented in two skills (`coordination-protocol`, `conflict-recovery`).
-- Signals are emitted for reserve/release/message events for status integrations.
-- Graceful failure mode is implemented: if `intermute` is unavailable, hooks and shell commands fail open where appropriate and proceed safely.
+- **Blocking `PreToolUse:Edit` hook** prevents edits to files exclusively reserved by another session (`decision:block`).
+- **Auto-reserve on first edit** — any file edited is automatically reserved (15min TTL, auto-renewing on subsequent edits).
+- **Per-session git index** — `SessionStart` sets `GIT_INDEX_FILE=.git/index-$SESSION_ID` so each session stages independently.
+- **Commit serialization** — `mkdir`-based lock ensures only one session commits at a time.
+- **Post-commit hook** — refreshes session index via `git read-tree HEAD`, auto-releases reservations for committed files, broadcasts commit event via Intermute.
+- Git pre-commit enforcement blocks commits when staged files conflict with active reservations held by other agents.
+- User-facing command surface: `/interlock:join`, `/interlock:leave`, `/interlock:status`, `/interlock:setup`.
+- Recovery guidance documented in two skills (`coordination-protocol`, `conflict-recovery`).
+- Signals emitted for reserve/release/message events for status integrations.
+- Graceful failure mode: if `intermute` is unavailable, hooks fail open and proceed safely.
+- 95 structural tests passing.
 
 ## What's Next
 
-- Improve coordination telemetry (signal quality, conflict rates, and conflict resolution latency) for operational feedback.
-- Improve failure visibility when joining or checking reservations fails intermittently (without changing the no-blocking edit philosophy).
-- Expand `/interlock:status` and signal-driven indicators with clearer per-pattern hold reasons and human-readable holder names.
-- Add more structured onboarding/health diagnostics for environments where `intermute` is present but misconfigured.
-- Continue extraction and hardening with interwatch/interline integrations as those surfaces evolve.
+### Phase 3: Workflow Integration (Clavain)
+- Auto-join on SessionStart (eliminate manual `/interlock:join` requirement).
+- Sprint pre-flight: show active agents, their reservations, and dirty tree status.
+- Bead-agent binding: prevent two sessions from claiming the same issue.
+- Post-commit rebase notification: trigger `git pull --rebase` in other sessions after a commit.
+
+### Phase 4: UX Polish
+- Interline statusline integration (live agent/reservation awareness).
+- Conflict resolution automation (auto-merge → message → escalate).
+- Agent Teams bridge evaluation.
+
+### Operational Improvements
+- Coordination telemetry (conflict rates, resolution latency).
+- Expanded `/interlock:status` with per-pattern hold reasons and human-readable holder names.
+- Structured onboarding/health diagnostics for misconfigured environments.
 
 ## Current Baseline
 
 All future work should preserve the core principles:
 
 1. Socket-first, TCP-safe transport design.
-2. Advisory edit warnings + mandatory commit gate.
-3. No silent policy decisions; coordination failures are explicit.
+2. Blocking edit enforcement for exclusive reservations + mandatory commit gate.
+3. Per-session git index isolation for safe concurrent staging.
+4. No silent policy decisions; coordination failures are explicit.
 
 ## Exit Criteria for Next Bump
 
-- Conflict detection is observable from session start to pre-commit gate.
-- New diagnostics and status improvements are documented in PRD and user-facing command docs.
-- No changes to the 12-feature coordination contract that reduce fallback safety.
+- Phase 3 workflow integration: sessions auto-join and sprint shows coordination state.
+- Bead-agent binding prevents duplicate work claims.
+- No changes to the coordination contract that reduce fallback safety.
 

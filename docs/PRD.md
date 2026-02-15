@@ -1,6 +1,6 @@
 # PRD: Interlock — Multi-Agent File Coordination Companion
 
-**Version:** 0.1.0
+**Version:** 0.1.1
 **Last updated:** 2026-02-15
 **Vision:** [`docs/vision.md`](vision.md)
 **Roadmap:** [`docs/roadmap.md`](roadmap.md)
@@ -29,9 +29,11 @@ Without coordination, agents can edit the same files concurrently, resulting in:
 Interlock adds a thin coordination layer:
 
 - one Go MCP server with 9 tools,
-- bash hooks wired into Claude Code lifecycle events,
+- bash hooks wired into Claude Code lifecycle events (including blocking edit enforcement),
 - shell commands for explicit join/leave/status/setup,
-- and a git pre-commit safety gate.
+- per-session git index isolation and commit serialization,
+- automatic file reservation on first edit,
+- and git pre-commit + post-commit safety gates.
 
 ## 5. Component Architecture
 
@@ -41,7 +43,7 @@ Interlock adds a thin coordination layer:
 | MCP tools | 9 | `reserve_files`, `release_files`, `release_all`, `check_conflicts`, `my_reservations`, `send_message`, `fetch_inbox`, `request_release`, `list_agents` |
 | Commands | 4 | `join`, `leave`, `status`, `setup` |
 | Skills | 2 | `coordination-protocol`, `conflict-recovery` |
-| Hooks | 4 | `SessionStart`, `PreToolUse:Edit` advisory, `Stop`, and git pre-commit enforcement |
+| Hooks | 3+2 | `SessionStart` (auto-register + git index isolation), `PreToolUse:Edit` (blocking + auto-reserve), `Stop` (cleanup), plus git `pre-commit` and `post-commit` enforcement |
 
 ### 5.1 Go binary (`cmd/interlock-mcp`)
 
@@ -69,11 +71,13 @@ Client methods map directly to `intermute` endpoints for:
 
 `hooks/hooks.json` wires host events to:
 
-- `session-start.sh`: auto-registration and environment export when joined,
-- `pre-edit.sh`: non-blocking warning on edits to reserved files,
-- `stop.sh`: release-and-cleanup.
+- `session-start.sh`: auto-registration, environment export, and per-session git index setup (`GIT_INDEX_FILE=.git/index-$SESSION_ID`) when joined,
+- `pre-edit.sh`: **blocking** enforcement on edits to exclusively reserved files (`decision:block`), with auto-reserve on first edit (15min TTL, auto-renewing),
+- `stop.sh`: release-and-cleanup (including session index file removal).
 
-Script helpers include `interlock-check.sh`, `interlock-register.sh`, `interlock-cleanup.sh`, and `interlock-signal.sh`, with `interlock-install-hooks` and `interlock-precommit-hook` for repository enforcement.
+Script helpers include `interlock-check.sh`, `interlock-register.sh`, `interlock-cleanup.sh`, and `interlock-signal.sh`. Repository enforcement uses `interlock-install-hooks` to install two git hooks:
+- `interlock-precommit-hook`: acquires `mkdir`-based commit lock, refreshes index via `git read-tree HEAD`, checks reservations against staged files,
+- `interlock-postcommit-hook`: refreshes session index, auto-releases reservations for committed files, broadcasts commit event via Intermute.
 
 ## 6. Key Workflows
 
@@ -85,12 +89,13 @@ Script helpers include `interlock-check.sh`, `interlock-register.sh`, `interlock
 4. Agents release specific reservations with `release_files` or all with `release_all`.
 5. `Stop` hook triggers best-effort cleanup via `interlock-cleanup.sh`.
 
-### 6.2 Conflict Detection
+### 6.2 Conflict Detection and Prevention
 
 1. `check_conflicts` MCP tool runs read-only conflict checks.
-2. `PreToolUse:Edit` hook checks the target file path on each edit and injects advisory context.
-3. git pre-commit hook performs mandatory enforcement against current staged files.
-4. A clear block message requires users to resolve conflicts, wait, or use `--no-verify` knowingly.
+2. `PreToolUse:Edit` hook blocks edits to files exclusively reserved by another session (`decision:block`). On first edit, auto-reserves the file (15min TTL, auto-renewing).
+3. git pre-commit hook acquires commit lock, refreshes index, and enforces reservation checks against staged files.
+4. git post-commit hook refreshes the session index, auto-releases reservations for committed files, and broadcasts the commit event.
+5. A clear block message requires agents to resolve conflicts, wait, or use `--no-verify` knowingly.
 
 ### 6.3 Agent Messaging
 
@@ -111,13 +116,13 @@ Tool actions emit lightweight signal events through `interlock-signal.sh`:
 
 ## 7. Non-Goals
 
-- No automatic reservation on every edit.
-- No replacement for agent judgement.
-- No in-repo conflict policy that blocks creative progress before commit gate.
+- No replacement for agent judgement on work partitioning.
+- No cross-repo coordination (each `.git` is independent).
+- No automatic conflict resolution (agents must resolve or wait).
 
 ## 8. Risks
 
 - Coordination depends on `intermute` availability; hooks degrade gracefully if the service is temporarily unreachable.
-- Hook-based behavior is intentionally advisory until commit-time enforcement, so misuse is possible if users force-through options are used.
+- Edit blocking relies on reservation state in `intermute`; if the service is unreachable, the edit hook fails open (allows the edit) to avoid blocking work entirely. `--no-verify` on commits bypasses the pre-commit gate.
 - Unix socket path and service health assumptions require healthy local environment setup for full capability.
 
