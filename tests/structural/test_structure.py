@@ -24,7 +24,7 @@ class TestPluginManifest:
         assert "interlock" in plugin_json["mcpServers"]
         srv = plugin_json["mcpServers"]["interlock"]
         assert srv["type"] == "stdio"
-        assert "interlock-mcp" in srv["command"]
+        assert "interlock-mcp" in srv["command"] or "launch-mcp" in srv["command"]
 
 
 class TestDirectoryStructure:
@@ -374,3 +374,59 @@ class TestWorkflowIntegration:
         """lib.sh should have the inbox_check_path helper for throttle flag files."""
         content = (project_root / "hooks" / "lib.sh").read_text()
         assert "inbox_check_path" in content
+
+
+class TestNegotiationProtocol:
+    """Tests for Phase 4a negotiation protocol features."""
+
+    def test_pre_edit_has_auto_release_flag(self, project_root):
+        """Pre-edit hook must check INTERLOCK_AUTO_RELEASE feature flag."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "INTERLOCK_AUTO_RELEASE" in content
+
+    def test_pre_edit_has_advisory_release(self, project_root):
+        """Pre-edit hook must use advisory mode (additionalContext), not auto-delete."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "additionalContext" in content
+        assert "respond_to_release" in content
+
+    def test_pre_edit_has_negotiation_throttle(self, project_root):
+        """Pre-edit hook must throttle release-request inbox checks."""
+        content = (project_root / "hooks" / "pre-edit.sh").read_text()
+        assert "negotiation_check_path" in content or "interlock-negotiate-checked" in content
+
+    def test_lib_has_negotiation_check_path(self, project_root):
+        """lib.sh should have the negotiation_check_path helper."""
+        content = (project_root / "hooks" / "lib.sh").read_text()
+        assert "negotiation_check_path" in content
+
+    def test_lib_has_fast_curl(self, project_root):
+        """lib.sh should have intermute_curl_fast with circuit breaker timeout."""
+        content = (project_root / "hooks" / "lib.sh").read_text()
+        assert "intermute_curl_fast" in content
+        assert "max-time" in content
+
+    def test_tools_have_exported_constants(self, project_root):
+        """Client should export timeout constants for tools layer."""
+        content = (project_root / "internal" / "client" / "client.go").read_text()
+        assert "NormalTimeoutMinutes" in content
+        assert "UrgentTimeoutMinutes" in content
+        assert "NegotiationPollInterval" in content
+
+    def test_advisory_timeout_no_force_release(self, project_root):
+        """CheckExpiredNegotiations must NOT call ReleaseByPattern (advisory-only)."""
+        content = (project_root / "internal" / "client" / "client.go").read_text()
+        # Find the CheckExpiredNegotiations function and verify no ReleaseByPattern call
+        in_func = False
+        found_advisory_comment = False
+        for line in content.splitlines():
+            if "func (c *Client) CheckExpiredNegotiations" in line:
+                in_func = True
+            elif in_func:
+                if line.startswith("func ") or (line.startswith("}") and not line.startswith("})")):
+                    break
+                assert "ReleaseByPattern" not in line, \
+                    "CheckExpiredNegotiations must not call ReleaseByPattern (advisory-only)"
+                if "advisory" in line.lower() or "Advisory" in line:
+                    found_advisory_comment = True
+        assert found_advisory_comment, "CheckExpiredNegotiations should have advisory comment"

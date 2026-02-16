@@ -356,15 +356,28 @@ func (c *Client) ReleaseByPattern(ctx context.Context, agentID, pattern string) 
 			continue
 		}
 		if err := c.DeleteReservation(ctx, r.ID); err != nil {
-			return released, fmt.Errorf("delete reservation %q: %w", r.ID, err)
+			if !isNotFound(err) {
+				return released, fmt.Errorf("delete reservation %q: %w", r.ID, err)
+			}
+			// 404 = already deleted by another goroutine/session, count as success.
 		}
 		released++
 	}
 	return released, nil
 }
 
-// CheckExpiredNegotiations enforces negotiation timeouts by force-releasing
-// expired release requests that have no release-ack in their thread.
+// Negotiation timeout constants. Exported so tools layer can reference them
+// in descriptions without duplicating magic numbers.
+const (
+	NormalTimeoutMinutes    = 10
+	UrgentTimeoutMinutes    = 5
+	NegotiationPollInterval = 2 * time.Second
+)
+
+// CheckExpiredNegotiations finds expired release requests that have no
+// release-ack in their thread. Returns advisory information about
+// timeout-eligible negotiations. Does NOT force-release reservations —
+// the requester agent decides whether to act on timeout information.
 func (c *Client) CheckExpiredNegotiations(ctx context.Context) ([]NegotiationTimeout, error) {
 	messages := make([]Message, 0)
 	cursor := ""
@@ -411,9 +424,9 @@ func (c *Client) CheckExpiredNegotiations(ctx context.Context) ([]NegotiationTim
 			continue
 		}
 
-		timeoutMinutes := 10
+		timeoutMinutes := NormalTimeoutMinutes
 		if urgency == "urgent" {
-			timeoutMinutes = 5
+			timeoutMinutes = UrgentTimeoutMinutes
 		}
 		age := now.Sub(requestTime)
 		if age < time.Duration(timeoutMinutes)*time.Minute {
@@ -442,38 +455,16 @@ func (c *Client) CheckExpiredNegotiations(ctx context.Context) ([]NegotiationTim
 			continue
 		}
 
-		released, err := c.ReleaseByPattern(ctx, c.agentID, file)
-		if err != nil {
-			return nil, fmt.Errorf("force release pattern %q: %w", file, err)
-		}
-
-		ackBody, err := json.Marshal(map[string]any{
-			"type":        "release-ack",
-			"file":        file,
-			"released":    true,
-			"released_by": "timeout",
-			"reason":      "timeout",
-		})
-		if err != nil {
-			return nil, fmt.Errorf("marshal timeout ack for %q: %w", file, err)
-		}
-
-		if msg.From != "" {
-			if err := c.SendMessageFull(ctx, msg.From, string(ackBody), MessageOptions{
-				ThreadID: threadID,
-				Subject:  "release-ack",
-			}); err != nil {
-				return nil, fmt.Errorf("send timeout ack to %q: %w", msg.From, err)
-			}
-		}
-
+		// Advisory only: report the timeout-eligible negotiation.
+		// The requester agent can call respond_to_release to force-release
+		// or the holder agent will see advisory context on next edit.
 		timeouts = append(timeouts, NegotiationTimeout{
 			ThreadID:   threadID,
 			File:       file,
 			Holder:     c.agentID,
 			Urgency:    urgency,
 			AgeMinutes: int(age.Minutes()),
-			Released:   released,
+			Released:   0,
 		})
 	}
 

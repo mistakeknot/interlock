@@ -214,3 +214,111 @@ func TestReleaseByPattern_Idempotent(t *testing.T) {
 		t.Fatalf("deleteCalls = %d, want 0", deleteCalls)
 	}
 }
+
+func TestReleaseByPattern_404Idempotent(t *testing.T) {
+	t.Parallel()
+
+	// Simulate race: another goroutine already deleted the reservation.
+	// First DELETE succeeds, second DELETE returns 404.
+	deleteCalls := 0
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("holder-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reservations":
+			return jsonResponse(http.StatusOK, map[string]any{
+				"reservations": []map[string]any{
+					{
+						"id":           "r1",
+						"agent_id":     "holder-1",
+						"path_pattern": "internal/tools/tools.go",
+						"is_active":    true,
+					},
+					{
+						"id":           "r2",
+						"agent_id":     "holder-1",
+						"path_pattern": "internal/client/client.go",
+						"is_active":    true,
+					},
+				},
+			}), nil
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/reservations/"):
+			deleteCalls++
+			if strings.HasSuffix(r.URL.Path, "/r2") {
+				// Simulate concurrent deletion: 404 on second reservation
+				return jsonResponse(http.StatusNotFound, map[string]any{
+					"error": "not found",
+				}), nil
+			}
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		default:
+			return jsonResponse(http.StatusNotFound, map[string]any{"error": "not found"}), nil
+		}
+	})
+
+	released, err := c.ReleaseByPattern(context.Background(), "holder-1", "internal/*")
+	if err != nil {
+		t.Fatalf("ReleaseByPattern() error = %v, want nil (404 should be treated as success)", err)
+	}
+	if released != 2 {
+		t.Fatalf("released = %d, want 2 (both counted including 404)", released)
+	}
+	if deleteCalls != 2 {
+		t.Fatalf("deleteCalls = %d, want 2", deleteCalls)
+	}
+}
+
+func TestCheckExpiredNegotiations_AdvisoryOnly(t *testing.T) {
+	t.Parallel()
+
+	// Verify that CheckExpiredNegotiations does NOT delete reservations.
+	// It should return timeout-eligible negotiations with Released=0.
+	deleteCalls := 0
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("a1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/inbox/"):
+			return jsonResponse(http.StatusOK, map[string]any{
+				"messages": []map[string]any{
+					{
+						"id":         "m1",
+						"from":       "a2",
+						"body":       `{"type":"release-request","file":"src/router.go","urgency":"urgent","thread_id":"t1"}`,
+						"subject":    "release-request",
+						"thread_id":  "t1",
+						"created_at": "2020-01-01T00:00:00Z",
+					},
+				},
+				"next_cursor": "",
+			}), nil
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
+			return jsonResponse(http.StatusOK, map[string]any{
+				"messages": []map[string]any{
+					{
+						"id":      "m1",
+						"subject": "release-request",
+						"body":    `{"type":"release-request"}`,
+					},
+				},
+			}), nil
+		case r.Method == http.MethodDelete:
+			deleteCalls++
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		default:
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		}
+	})
+
+	timeouts, err := c.CheckExpiredNegotiations(context.Background())
+	if err != nil {
+		t.Fatalf("CheckExpiredNegotiations() error = %v", err)
+	}
+	if len(timeouts) != 1 {
+		t.Fatalf("len(timeouts) = %d, want 1", len(timeouts))
+	}
+	if timeouts[0].Released != 0 {
+		t.Fatalf("timeouts[0].Released = %d, want 0 (advisory-only)", timeouts[0].Released)
+	}
+	if deleteCalls != 0 {
+		t.Fatalf("deleteCalls = %d, want 0 (advisory-only should not delete)", deleteCalls)
+	}
+}

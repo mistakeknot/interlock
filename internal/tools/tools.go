@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,29 +16,12 @@ import (
 	"github.com/mistakeknot/interlock/internal/client"
 )
 
+// Use client-exported constants to avoid duplication.
 const (
-	normalTimeoutMinutes    = 10
-	urgentTimeoutMinutes    = 5
-	negotiationPollInterval = 2 * time.Second
+	normalTimeoutMinutes    = client.NormalTimeoutMinutes
+	urgentTimeoutMinutes    = client.UrgentTimeoutMinutes
+	negotiationPollInterval = client.NegotiationPollInterval
 )
-
-var (
-	timeoutCheckerOnce sync.Once
-	timeoutCheckerStop chan struct{}
-)
-
-// StopTimeoutChecker signals the background timeout-enforcement goroutine to
-// exit. Safe to call even if the goroutine was never started.
-func StopTimeoutChecker() {
-	if timeoutCheckerStop != nil {
-		select {
-		case <-timeoutCheckerStop:
-			// Already closed.
-		default:
-			close(timeoutCheckerStop)
-		}
-	}
-}
 
 // RegisterAll registers all 11 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
@@ -376,22 +358,6 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			),
 		),
 		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			timeoutCheckerOnce.Do(func() {
-				timeoutCheckerStop = make(chan struct{})
-				go func() {
-					ticker := time.NewTicker(30 * time.Second)
-					defer ticker.Stop()
-					for {
-						select {
-						case <-ticker.C:
-							_, _ = c.CheckExpiredNegotiations(context.Background())
-						case <-timeoutCheckerStop:
-							return
-						}
-					}
-				}()
-			})
-
 			args := req.GetArguments()
 			agentName, _ := args["agent_name"].(string)
 			file, _ := args["file"].(string)
