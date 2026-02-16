@@ -1,7 +1,7 @@
 {
   "name": "interlock",
   "version": "0.2.0",
-  "description": "MCP server for intermute file reservation and agent coordination. 9 tools: reserve, release, conflict check, messaging, agent listing. Companion plugin for Clavain.",
+  "description": "MCP server for intermute file reservation and agent coordination. 11 tools: reserve, release, conflict check, messaging, agent listing, negotiation. Companion plugin for Clavain.",
   "author": {
     "name": "mistakeknot"
   },
@@ -17,7 +17,7 @@
   "mcpServers": {
     "interlock": {
       "type": "stdio",
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/interlock-mcp",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/launch-mcp.sh",
       "args": [],
       "env": {
         "INTERMUTE_SOCKET": "/var/run/intermute.sock",

@@ -35,6 +35,6 @@ MCP server for intermute-backed file reservation and agent coordination. Compani
   - `action='release'` releases matching reservations and sends `release-ack`.
   - `action='defer'` keeps reservation, includes `eta_minutes`/`reason`, and sends `release-defer`.
 - `INTERLOCK_AUTO_RELEASE=1` enables advisory mode in `hooks/pre-edit.sh`: pending release requests are surfaced as context with suggested `respond_to_release(...)` calls.
-- Timeout escalation is enforced at protocol level: `urgent` requests escalate at 5 minutes, `normal` at 10 minutes, with background + inbox-driven enforcement via `CheckExpiredNegotiations`.
+- Timeout escalation uses advisory-only enforcement: `CheckExpiredNegotiations` (called from `fetch_inbox`) identifies expired negotiations and returns advisory information — it does NOT force-release reservations. Holder agents see timeout context on their next edit via `pre-edit.sh` (when `INTERLOCK_AUTO_RELEASE=1`). Thresholds: `urgent` at 5 minutes, `normal` at 10 minutes. Constants exported from `internal/client`: `NormalTimeoutMinutes`, `UrgentTimeoutMinutes`, `NegotiationPollInterval`.
 - `/interlock:status` includes a pending negotiations table showing requester, holder, file, urgency, age, and current status.
 
