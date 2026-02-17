@@ -24,7 +24,7 @@ Register this agent for multi-agent file coordination via intermute.
        curl -sf "$INTERMUTE_URL/health"
    fi
    ```
-   If unreachable, tell the user to run `/interlock:setup` first and stop.
+   If unreachable, tell the user to run `/clavain:setup --scope interlock` first and stop.
 
 4. **Register agent** by calling `POST /api/agents` with the resolved name and session ID.
 

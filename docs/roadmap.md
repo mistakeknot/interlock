@@ -18,7 +18,7 @@ Interlock has shipped Phase 1+2 of multi-session coordination: per-session git i
 - **Commit serialization** — `mkdir`-based lock ensures only one session commits at a time.
 - **Post-commit hook** — refreshes session index via `git read-tree HEAD`, auto-releases reservations for committed files, broadcasts commit event via Intermute.
 - Git pre-commit enforcement blocks commits when staged files conflict with active reservations held by other agents.
-- User-facing command surface: `/interlock:join`, `/interlock:leave`, `/interlock:status`, `/interlock:setup`.
+- User-facing command surface: `/interlock:join`, `/interlock:leave`, `/interlock:interlock-status`, `/interlock:interlock-setup`.
 - Recovery guidance documented in two skills (`coordination-protocol`, `conflict-recovery`).
 - Signals emitted for reserve/release/message events for status integrations.
 - Graceful failure mode: if `intermute` is unavailable, hooks fail open and proceed safely.
@@ -26,21 +26,21 @@ Interlock has shipped Phase 1+2 of multi-session coordination: per-session git i
 
 ## What's Next
 
-### Phase 3: Workflow Integration (Clavain)
-- Auto-join on SessionStart (eliminate manual `/interlock:join` requirement).
-- Sprint pre-flight: show active agents, their reservations, and dirty tree status.
-- Bead-agent binding: prevent two sessions from claiming the same issue.
-- Post-commit rebase notification: trigger `git pull --rebase` in other sessions after a commit.
+### P2.1 — Workflow Integration (Clavain)
+- [ILK-N1] **Auto-join on startup** — enable session onboarding without manual `/interlock:join`.
+- [ILK-N2] **Sprint visibility pre-flight** — surface active agents, reservations, and dirty tree state before work.
+- [ILK-N3] **Bead-agent binding** — prevent two sessions from claiming the same issue.
+- [ILK-N4] **Post-commit broadcast** — trigger session rebase guidance in active sessions after commit.
 
-### Phase 4: UX Polish
-- Interline statusline integration (live agent/reservation awareness).
-- Conflict resolution automation (auto-merge → message → escalate).
-- Agent Teams bridge evaluation.
+### P2.3 — UX and Recovery
+- [ILK-P1] **Interline reservation visibility** — show live agent and hold state in statusline.
+- [ILK-P2] **Automated conflict resolution** — add auto-merge → message → escalation path.
+- [ILK-P3] **Agent Teams bridge** — evaluate external team handoff compatibility.
 
 ### Operational Improvements
-- Coordination telemetry (conflict rates, resolution latency).
-- Expanded `/interlock:status` with per-pattern hold reasons and human-readable holder names.
-- Structured onboarding/health diagnostics for misconfigured environments.
+- [ILK-N5] **Coordination telemetry** — export conflict rates and resolution latency for diagnostics.
+- [ILK-N6] **Status reason transparency** — include per-pattern hold reasons and holder names.
+- [ILK-N7] **Onboarding diagnostics** — run deterministic health checks for misconfigured environments.
 
 ## Current Baseline
 
@@ -57,3 +57,11 @@ All future work should preserve the core principles:
 - Bead-agent binding prevents duplicate work claims.
 - No changes to the coordination contract that reduce fallback safety.
 
+## From Interverse Roadmap
+
+Items from the [Interverse roadmap](../../../docs/roadmap.json) that involve this module:
+
+- **iv-1aug** [Next] F1: Release Response Protocol — `release_ack` / `release_defer` (Phase 4a prerequisite is complete)
+- **iv-5ijt** [Next] F3: Structured `negotiate_release` MCP tool (blocked by iv-1aug)
+- **iv-6u3s** [Next] F4: Sprint Scan release visibility (blocked by iv-1aug)
+- **iv-2jtj** [Next] F5: Escalation timeout for unresponsive agents (blocked by iv-5ijt)
