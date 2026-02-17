@@ -27,6 +27,14 @@ fi
 rm -f "$(agent_file_path "$SESSION_ID")" 2>/dev/null || true
 rm -f "$(connected_flag_path "$SESSION_ID")" 2>/dev/null || true
 
+# Clean up this agent's interband coordination snapshot (best effort).
+PROJECT_SLUG="${INTERLOCK_PROJECT_SLUG:-}"
+if [[ -z "$PROJECT_SLUG" ]]; then
+    PROJECT_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")
+fi
+INTERBAND_DIR="${INTERBAND_ROOT:-${HOME}/.interband}"
+rm -f "${INTERBAND_DIR}/interlock/coordination/${PROJECT_SLUG}-${AGENT_ID}.json" 2>/dev/null || true
+
 # Clean up stale temp files from previous sessions (>60 min old)
 find /tmp -maxdepth 1 -name 'interlock-agent-*.json' -mmin +60 -delete 2>/dev/null || true
 find /tmp -maxdepth 1 -name 'interlock-connected-*' -mmin +60 -delete 2>/dev/null || true

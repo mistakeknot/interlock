@@ -103,6 +103,9 @@ if _load_interband && type interband_path >/dev/null 2>&1 && type interband_writ
         if [[ -n "$interband_file" ]]; then
             interband_write "$interband_file" "interlock" "coordination_signal" "${CLAUDE_SESSION_ID:-}" "$signal_payload" \
                 2>/dev/null || true
+            if type interband_prune_channel >/dev/null 2>&1; then
+                interband_prune_channel "interlock" "coordination" 2>/dev/null || true
+            fi
         fi
     fi
 fi
