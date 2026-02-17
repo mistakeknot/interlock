@@ -22,10 +22,16 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 _load_interband() {
+    local repo_root=""
+    repo_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+
     local candidate
     for candidate in \
         "${INTERBAND_LIB:-}" \
-        "${SCRIPT_DIR}/../../../infra/interband/lib/interband.sh"
+        "${SCRIPT_DIR}/../../../infra/interband/lib/interband.sh" \
+        "${SCRIPT_DIR}/../../../interband/lib/interband.sh" \
+        "${repo_root}/../interband/lib/interband.sh" \
+        "${HOME}/.local/share/interband/lib/interband.sh"
     do
         if [[ -n "$candidate" && -f "$candidate" ]]; then
             # shellcheck source=/dev/null
