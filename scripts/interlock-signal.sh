@@ -11,12 +11,29 @@
 #   INTERMUTE_AGENT_ID       — agent UUID (required, no-op if missing)
 #   INTERLOCK_PROJECT_SLUG   — project slug (optional, derived from git if unset)
 #   INTERLOCK_SIGNAL_DIR     — signal directory (default: /var/run/intermute/signals)
+#   INTERBAND_LIB            — optional path to shared interband library
 set -euo pipefail
 
 # Guard: fail-open if jq is missing
 if ! command -v jq &>/dev/null; then
     exit 0
 fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+_load_interband() {
+    local candidate
+    for candidate in \
+        "${INTERBAND_LIB:-}" \
+        "${SCRIPT_DIR}/../../../infra/interband/lib/interband.sh"
+    do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            # shellcheck source=/dev/null
+            source "$candidate" && return 0
+        fi
+    done
+    return 1
+}
 
 EVENT_TYPE="${1:-}"
 TEXT="${2:-}"
@@ -65,3 +82,21 @@ jq -nc \
     --arg ts "$TS" \
     '{version:$version,layer:$layer,icon:$icon,text:$text,priority:$priority,ts:$ts}' \
     >> "${SIGNAL_DIR}/${SLUG}-${AGENT_ID}.jsonl"
+
+# Structured interband mirror (latest signal snapshot) — best effort.
+if _load_interband && type interband_path >/dev/null 2>&1 && type interband_write >/dev/null 2>&1; then
+    signal_payload=$(jq -nc \
+        --arg layer "coordination" \
+        --arg icon "$ICON" \
+        --arg text "$TEXT" \
+        --argjson priority "$PRIORITY" \
+        --arg ts "$TS" \
+        '{layer:$layer,icon:$icon,text:$text,priority:$priority,ts:$ts}' 2>/dev/null) || signal_payload=""
+    if [[ -n "$signal_payload" ]]; then
+        interband_file=$(interband_path "interlock" "coordination" "${SLUG}-${AGENT_ID}" 2>/dev/null) || interband_file=""
+        if [[ -n "$interband_file" ]]; then
+            interband_write "$interband_file" "interlock" "coordination_signal" "${CLAUDE_SESSION_ID:-}" "$signal_payload" \
+                2>/dev/null || true
+        fi
+    fi
+fi
