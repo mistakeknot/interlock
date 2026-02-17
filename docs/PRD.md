@@ -1,6 +1,6 @@
 # PRD: Interlock — Multi-Agent File Coordination Companion
 
-**Version:** 0.1.1
+**Version:** 0.2.1
 **Last updated:** 2026-02-15
 **Vision:** [`docs/vision.md`](vision.md)
 **Roadmap:** [`docs/roadmap.md`](roadmap.md)
