@@ -14,10 +14,8 @@ is_joined || exit 0
 SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null) || SESSION_ID=""
 [[ -n "$SESSION_ID" ]] || exit 0
 
-# Persist session_id to CLAUDE_ENV_FILE for downstream hooks
-if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
-    echo "export CLAUDE_SESSION_ID=${SESSION_ID}" >> "$CLAUDE_ENV_FILE"
-fi
+# NOTE: CLAUDE_SESSION_ID is written by Clavain's session-start.sh (canonical writer).
+# Do NOT duplicate here — both hooks run async, creating a race condition (iv-erb1).
 
 # --- Per-session git index isolation ---
 # Each session gets its own GIT_INDEX_FILE so concurrent git-add operations
