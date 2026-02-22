@@ -24,5 +24,16 @@
         "INTERMUTE_URL": "http://127.0.0.1:7338"
       }
     }
-  }
+  },
+  "hooks": "./hooks/hooks.json",
+  "skills": [
+    "./skills/conflict-recovery",
+    "./skills/coordination-protocol"
+  ],
+  "commands": [
+    "./commands/join.md",
+    "./commands/leave.md",
+    "./commands/setup.md",
+    "./commands/status.md"
+  ]
 }
