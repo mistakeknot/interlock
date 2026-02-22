@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -605,10 +606,27 @@ func respondToRelease(c *client.Client) server.ServerTool {
 func listAgents(c *client.Client) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("list_agents",
-			mcp.WithDescription("List all active agents in the project."),
+			mcp.WithDescription("List agents registered with intermute. Optionally filter by capability tag (e.g. 'review:architecture'). Comma-separated capabilities use OR matching."),
+			mcp.WithString("capability",
+				mcp.Description("Capability tag to filter by (e.g. 'review:architecture'). Comma-separated for OR matching. Omit to list all agents."),
+			),
 		),
 		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			agents, err := c.ListAgents(ctx)
+			args := req.GetArguments()
+			capability, _ := args["capability"].(string)
+			var agents []client.Agent
+			var err error
+			if capability != "" {
+				var caps []string
+				for _, c := range strings.Split(capability, ",") {
+					if c = strings.TrimSpace(c); c != "" {
+						caps = append(caps, c)
+					}
+				}
+				agents, err = c.DiscoverAgents(ctx, caps)
+			} else {
+				agents, err = c.ListAgents(ctx)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("list agents: %v", err)), nil
 			}

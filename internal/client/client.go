@@ -100,10 +100,12 @@ type ConflictDetail struct {
 
 // Agent represents a registered agent.
 type Agent struct {
-	AgentID string `json:"agent_id"`
-	Name    string `json:"name"`
-	Project string `json:"project"`
-	Status  string `json:"status"`
+	AgentID      string   `json:"agent_id"`
+	Name         string   `json:"name"`
+	Project      string   `json:"project"`
+	Capabilities []string `json:"capabilities"`
+	Status       string   `json:"status"`
+	LastSeen     string   `json:"last_seen"`
 }
 
 // Message represents an inbox message.
@@ -239,6 +241,23 @@ func (c *Client) RegisterAgent(ctx context.Context) (*Agent, error) {
 // ListAgents lists agents for the configured project.
 func (c *Client) ListAgents(ctx context.Context) ([]Agent, error) {
 	path := "/api/agents?project=" + url.QueryEscape(c.project)
+	var result struct {
+		Agents []Agent `json:"agents"`
+	}
+	if err := c.doJSON(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result.Agents, nil
+}
+
+// DiscoverAgents lists agents filtered by capability tags.
+// Capabilities uses OR matching — agents with any of the given capabilities are returned.
+// Pass nil or empty slice to list all agents (same as ListAgents).
+func (c *Client) DiscoverAgents(ctx context.Context, capabilities []string) ([]Agent, error) {
+	path := "/api/agents?project=" + url.QueryEscape(c.project)
+	if len(capabilities) > 0 {
+		path += "&capability=" + url.QueryEscape(strings.Join(capabilities, ","))
+	}
 	var result struct {
 		Agents []Agent `json:"agents"`
 	}

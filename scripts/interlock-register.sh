@@ -31,6 +31,16 @@ else
     PROJECT="$(basename "$PWD")"
 fi
 
+# Extract capabilities from per-agent capability file (written by each plugin's session hook)
+CAPABILITIES="[]"
+CAPS_FILE="${HOME}/.config/clavain/capabilities-${AGENT_NAME}.json"
+if [[ -f "$CAPS_FILE" ]]; then
+    AGENT_CAPS=$(jq -c '.' "$CAPS_FILE" 2>/dev/null)
+    if [[ -n "$AGENT_CAPS" ]] && [[ "$AGENT_CAPS" != "null" ]]; then
+        CAPABILITIES="$AGENT_CAPS"
+    fi
+fi
+
 # POST to intermute /api/agents
 RESPONSE=$(intermute_curl POST "/api/agents" \
     -H "Content-Type: application/json" \
@@ -39,7 +49,8 @@ RESPONSE=$(intermute_curl POST "/api/agents" \
         --arg name "$AGENT_NAME" \
         --arg project "$PROJECT" \
         --arg session_id "$SESSION_ID" \
-        '{id: $id, name: $name, project: $project, session_id: $session_id}')" \
+        --argjson capabilities "$CAPABILITIES" \
+        '{id: $id, name: $name, project: $project, session_id: $session_id, capabilities: $capabilities}')" \
     2>/dev/null) || exit 1
 
 AGENT_ID=$(echo "$RESPONSE" | jq -r '.agent_id // .id // empty' 2>/dev/null) || exit 1
