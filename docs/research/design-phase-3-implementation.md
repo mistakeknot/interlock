@@ -53,7 +53,7 @@ This design completes the final phase of interlock's multi-session coordination 
 
 ### Current Implementation
 
-`sprint_check_coordination()` in `/root/projects/Interverse/hub/clavain/hooks/sprint-scan.sh` (lines 215-264):
+`sprint_check_coordination()` in `/root/projects/Interverse/os/clavain/hooks/sprint-scan.sh` (lines 215-264):
 - Queries Intermute for active agents and reservations
 - Builds summary: "N agent(s) online: agent1→file1,file2, agent2"
 - Returns 0 if agents found, 1 otherwise
@@ -68,7 +68,7 @@ Add git status check **after** the agent query, before building output summary. 
 
 #### Implementation Location
 
-File: `/root/projects/Interverse/hub/clavain/hooks/sprint-scan.sh`  
+File: `/root/projects/Interverse/os/clavain/hooks/sprint-scan.sh`  
 Function: `sprint_check_coordination()` (lines 215-264)
 
 #### Code Changes (line 262, before final echo)
@@ -118,7 +118,7 @@ class TestSprintCoordination:
 
 ### Current Implementation
 
-`bead-agent-bind.sh` in `/root/projects/Interverse/hub/clavain/hooks/` (47 lines):
+`bead-agent-bind.sh` in `/root/projects/Interverse/os/clavain/hooks/` (47 lines):
 - PostToolUse:Bash hook
 - Triggers on `bd update --status=in_progress` or `bd claim`
 - Extracts issue ID from command
@@ -134,7 +134,7 @@ PostToolUse hooks **cannot emit `decision:block`** — only SessionStart, PreToo
 
 #### Implementation Location
 
-File: `/root/projects/Interverse/hub/clavain/hooks/bead-agent-bind.sh`  
+File: `/root/projects/Interverse/os/clavain/hooks/bead-agent-bind.sh`  
 Insert: Before line 45 (`bd update` call)
 
 #### Code Changes (insert after line 41)
@@ -545,8 +545,8 @@ class TestAutoRebase:
 
 | File | Lines Changed | Type | Risk |
 |------|--------------|------|------|
-| `/root/projects/Interverse/hub/clavain/hooks/sprint-scan.sh` | +15 | Feature | Low |
-| `/root/projects/Interverse/hub/clavain/hooks/bead-agent-bind.sh` | +25 | Feature | Low |
+| `/root/projects/Interverse/os/clavain/hooks/sprint-scan.sh` | +15 | Feature | Low |
+| `/root/projects/Interverse/os/clavain/hooks/bead-agent-bind.sh` | +25 | Feature | Low |
 | `/root/projects/Interverse/plugins/interlock/hooks/pre-edit.sh` | +50 | Feature | Medium |
 | `/root/projects/Interverse/plugins/interlock/tests/structural/test_structure.py` | +20 | Test | Low |
 | Clavain tests (new or existing) | +10 | Test | Low |

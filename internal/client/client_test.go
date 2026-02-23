@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -320,5 +322,186 @@ func TestCheckExpiredNegotiations_AdvisoryOnly(t *testing.T) {
 	}
 	if deleteCalls != 0 {
 		t.Fatalf("deleteCalls = %d, want 0 (advisory-only should not delete)", deleteCalls)
+	}
+}
+
+// makeExpiredThread returns thread messages for a release-request that is
+// past the timeout window. The createdAt timestamp is set far in the past.
+func makeExpiredThread(holderID string) []map[string]any {
+	expired := time.Now().Add(-20 * time.Minute).Format(time.RFC3339)
+	return []map[string]any{
+		{
+			"id":         "m1",
+			"from":       "requester-1",
+			"to":         []string{holderID},
+			"body":       fmt.Sprintf(`{"type":"release-request","file":"src/router.go","urgency":"normal","thread_id":"t1","holder":"%s"}`, holderID),
+			"subject":    "release-request",
+			"thread_id":  "t1",
+			"created_at": expired,
+		},
+	}
+}
+
+func TestForceReleaseNegotiation_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	deleteCalls := 0
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
+			return jsonResponse(http.StatusOK, map[string]any{
+				"messages": makeExpiredThread("holder-1"),
+			}), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reservations":
+			return jsonResponse(http.StatusOK, map[string]any{
+				"reservations": []map[string]any{
+					{
+						"id":           "r1",
+						"agent_id":     "holder-1",
+						"path_pattern": "src/router.go",
+						"is_active":    true,
+					},
+				},
+			}), nil
+		case r.Method == http.MethodDelete:
+			deleteCalls++
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		default:
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		}
+	})
+
+	result, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/router.go", "need to fix critical bug")
+	if err != nil {
+		t.Fatalf("ForceReleaseNegotiation() error = %v", err)
+	}
+	if result.HolderID != "holder-1" {
+		t.Fatalf("HolderID = %q, want holder-1", result.HolderID)
+	}
+	if result.Released != 1 {
+		t.Fatalf("Released = %d, want 1", result.Released)
+	}
+	if deleteCalls != 1 {
+		t.Fatalf("deleteCalls = %d, want 1", deleteCalls)
+	}
+}
+
+func TestForceReleaseNegotiation_NotExpired(t *testing.T) {
+	t.Parallel()
+
+	recent := time.Now().Add(-1 * time.Minute).Format(time.RFC3339)
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, map[string]any{
+			"messages": []map[string]any{
+				{
+					"id":         "m1",
+					"from":       "requester-1",
+					"to":         []string{"holder-1"},
+					"body":       `{"type":"release-request","file":"src/router.go","urgency":"normal","thread_id":"t1"}`,
+					"subject":    "release-request",
+					"thread_id":  "t1",
+					"created_at": recent,
+				},
+			},
+		}), nil
+	})
+
+	_, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/router.go", "impatient")
+	if err == nil {
+		t.Fatal("ForceReleaseNegotiation() expected error for non-expired negotiation, got nil")
+	}
+	if !strings.Contains(err.Error(), "not exceeded") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestForceReleaseNegotiation_AlreadyAcked(t *testing.T) {
+	t.Parallel()
+
+	expired := time.Now().Add(-20 * time.Minute).Format(time.RFC3339)
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, map[string]any{
+			"messages": []map[string]any{
+				{
+					"id":         "m1",
+					"from":       "requester-1",
+					"to":         []string{"holder-1"},
+					"body":       `{"type":"release-request","file":"src/router.go","urgency":"normal"}`,
+					"subject":    "release-request",
+					"thread_id":  "t1",
+					"created_at": expired,
+				},
+				{
+					"id":        "m2",
+					"from":      "holder-1",
+					"body":      `{"type":"release-ack","released":true}`,
+					"subject":   "release-ack",
+					"thread_id": "t1",
+				},
+			},
+		}), nil
+	})
+
+	_, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/router.go", "already handled")
+	if err == nil {
+		t.Fatal("ForceReleaseNegotiation() expected error for already-acked negotiation, got nil")
+	}
+	if !strings.Contains(err.Error(), "already has a release-ack") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestForceReleaseNegotiation_EmptyThread(t *testing.T) {
+	t.Parallel()
+
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, map[string]any{
+			"messages": []map[string]any{},
+		}), nil
+	})
+
+	_, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/router.go", "phantom thread")
+	if err == nil {
+		t.Fatal("ForceReleaseNegotiation() expected error for empty thread, got nil")
+	}
+	if !strings.Contains(err.Error(), "no messages") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestForceReleaseNegotiation_ZeroReleased(t *testing.T) {
+	t.Parallel()
+
+	// Holder already released their reservation (0 matches) — should succeed, not error.
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
+			return jsonResponse(http.StatusOK, map[string]any{
+				"messages": makeExpiredThread("holder-1"),
+			}), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reservations":
+			// No active reservations — holder already released
+			return jsonResponse(http.StatusOK, map[string]any{
+				"reservations": []map[string]any{},
+			}), nil
+		default:
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		}
+	})
+
+	result, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/router.go", "cleanup")
+	if err != nil {
+		t.Fatalf("ForceReleaseNegotiation() error = %v (should succeed even with 0 released)", err)
+	}
+	if result.Released != 0 {
+		t.Fatalf("Released = %d, want 0", result.Released)
+	}
+	if result.HolderID != "holder-1" {
+		t.Fatalf("HolderID = %q, want holder-1", result.HolderID)
 	}
 }

@@ -54,12 +54,12 @@ class TestMCPTools:
         "reserve_files", "release_files", "release_all",
         "check_conflicts", "my_reservations",
         "send_message", "fetch_inbox", "list_agents", "request_release",
-        "negotiate_release", "respond_to_release",
+        "negotiate_release", "respond_to_release", "force_release_negotiation",
     ])
 
     def test_tool_count(self, project_root):
         names = self._find_tool_names(project_root)
-        assert len(names) == 11, f"Expected 11 tools, found {len(names)}: {names}"
+        assert len(names) == 12, f"Expected 12 tools, found {len(names)}: {names}"
 
     def test_tool_names(self, project_root):
         names = self._find_tool_names(project_root)

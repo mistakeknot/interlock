@@ -26,14 +26,16 @@ MCP server for intermute-backed file reservation and agent coordination. Compani
 | `request_release` | Legacy release request tool (deprecated; use negotiation tools). |
 | `negotiate_release` | Start a release negotiation with urgency + optional blocking wait. |
 | `respond_to_release` | Resolve negotiation by releasing now or deferring with ETA. |
+| `force_release_negotiation` | Escalation: force-release after negotiation timeout (requester-initiated). |
 
 ## Negotiation Protocol
 
 - `negotiate_release` sends a `release-request` message with `urgency` (`normal` or `urgent`) and a generated `thread_id` for tracking.
-- `wait_seconds` on `negotiate_release` enables blocking-wait mode: the tool polls the negotiation thread and returns `release`, `defer`, or `timeout` status.
+- `wait_seconds` on `negotiate_release` enables blocking-wait mode: the tool polls the negotiation thread and returns `release`, `defer`, or `timeout` status. On timeout, the response includes `can_escalate: true` with a hint to use `force_release_negotiation`.
 - `respond_to_release` handles both actions:
   - `action='release'` releases matching reservations and sends `release-ack`.
   - `action='defer'` keeps reservation, includes `eta_minutes`/`reason`, and sends `release-defer`.
+- `force_release_negotiation` is the escalation path: when `negotiate_release` times out, the requester can explicitly force-release the holder's reservation. Validates pre-conditions (timeout exceeded, no existing ack) before releasing. Sends `release-ack` with `forced: true` to the thread and notifies the holder.
 - `INTERLOCK_AUTO_RELEASE=1` enables advisory mode in `hooks/pre-edit.sh`: pending release requests are surfaced as context with suggested `respond_to_release(...)` calls.
 - Timeout escalation uses advisory-only enforcement: `CheckExpiredNegotiations` (called from `fetch_inbox`) identifies expired negotiations and returns advisory information — it does NOT force-release reservations. Holder agents see timeout context on their next edit via `pre-edit.sh` (when `INTERLOCK_AUTO_RELEASE=1`). Thresholds: `urgent` at 5 minutes, `normal` at 10 minutes. Constants exported from `internal/client`: `NormalTimeoutMinutes`, `UrgentTimeoutMinutes`, `NegotiationPollInterval`.
 - `/interlock:status` includes a pending negotiations table showing requester, holder, file, urgency, age, and current status.

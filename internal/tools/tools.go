@@ -24,7 +24,7 @@ const (
 	negotiationPollInterval = client.NegotiationPollInterval
 )
 
-// RegisterAll registers all 11 MCP tools with the server.
+// RegisterAll registers all 12 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -38,6 +38,7 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		requestRelease(c),
 		negotiateRelease(c),
 		respondToRelease(c),
+		forceReleaseNegotiation(c),
 	)
 }
 
@@ -484,9 +485,11 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			}
 
 			return jsonResult(map[string]any{
-				"status":    "timeout",
-				"thread_id": threadID,
-				"waited":    waitSeconds,
+				"status":          "timeout",
+				"thread_id":       threadID,
+				"waited":          waitSeconds,
+				"can_escalate":    true,
+				"escalation_hint": "Call force_release_negotiation with this thread_id to force-release the reservation",
 			})
 		},
 	}
@@ -596,6 +599,76 @@ func respondToRelease(c *client.Client) server.ServerTool {
 				"file":        file,
 				"eta_minutes": etaMinutes,
 				"reason":      reason,
+			})
+		},
+	}
+}
+
+func forceReleaseNegotiation(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("force_release_negotiation",
+			mcp.WithDescription("Force-release a reservation after a negotiation has timed out. Use when negotiate_release returns status 'timeout' and you need the file. Validates that the timeout window has elapsed and no response was received."),
+			mcp.WithString("thread_id",
+				mcp.Description("Negotiation thread ID from the timed-out negotiate_release call"),
+				mcp.Required(),
+			),
+			mcp.WithString("file",
+				mcp.Description("The file pattern being negotiated"),
+				mcp.Required(),
+			),
+			mcp.WithString("reason",
+				mcp.Description("Why you are force-releasing (audit trail)"),
+				mcp.Required(),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			threadID, _ := args["thread_id"].(string)
+			file, _ := args["file"].(string)
+			reason, _ := args["reason"].(string)
+
+			if threadID == "" || file == "" || reason == "" {
+				return mcp.NewToolResultError("thread_id, file, and reason are required"), nil
+			}
+
+			result, err := c.ForceReleaseNegotiation(ctx, threadID, file, reason)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("force release: %v", err)), nil
+			}
+
+			// Only send release-ack if we actually released something.
+			// Sending acks when released == 0 causes thread spam (correctness review C1).
+			if result.Released > 0 {
+				ackBody, _ := json.Marshal(map[string]any{
+					"type":         "release-ack",
+					"file":         file,
+					"released":     true,
+					"forced":       true,
+					"reason":       "escalation-timeout",
+					"released_by":  c.AgentName(),
+					"released_cnt": result.Released,
+				})
+				_ = c.SendMessageFull(ctx, result.HolderID, string(ackBody), client.MessageOptions{
+					ThreadID:   threadID,
+					Subject:    "release-ack",
+					Importance: "urgent",
+				})
+			}
+
+			status := "force_released"
+			if result.Released == 0 {
+				status = "already_released"
+			}
+
+			emitSignal("escalation", fmt.Sprintf("force-released %s from %s (thread %s, released=%d)", file, result.HolderID, threadID, result.Released))
+
+			return jsonResult(map[string]any{
+				"status":    status,
+				"thread_id": threadID,
+				"file":      file,
+				"holder":    result.HolderID,
+				"released":  result.Released,
+				"reason":    reason,
 			})
 		},
 	}

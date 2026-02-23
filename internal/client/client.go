@@ -490,6 +490,76 @@ func (c *Client) CheckExpiredNegotiations(ctx context.Context) ([]NegotiationTim
 	return timeouts, nil
 }
 
+// ForceReleaseResult captures the outcome of a forced escalation release.
+type ForceReleaseResult struct {
+	HolderID string `json:"holder_id"`
+	Released int    `json:"released"`
+}
+
+// ForceReleaseNegotiation validates that a negotiation has timed out and
+// force-releases the holder's reservation. Returns an error if the
+// negotiation is not yet expired or has already been acknowledged.
+func (c *Client) ForceReleaseNegotiation(ctx context.Context, threadID, file, reason string) (*ForceReleaseResult, error) {
+	messages, err := c.FetchThread(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("fetch thread %q: %w", threadID, err)
+	}
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("thread %q has no messages", threadID)
+	}
+
+	if hasReleaseAck(messages) {
+		return nil, fmt.Errorf("thread %q already has a release-ack", threadID)
+	}
+
+	// Find the original release-request to extract urgency and holder.
+	var holderID, urgency string
+	var requestTime time.Time
+	for _, msg := range messages {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(msg.Body), &payload); err != nil {
+			continue
+		}
+		if stringOr(payload["type"], "") != "release-request" {
+			continue
+		}
+		holderID = stringOr(payload["holder"], "")
+		if holderID == "" {
+			// The request was sent TO the holder — use the message recipient.
+			if len(msg.To) > 0 {
+				holderID = msg.To[0]
+			}
+		}
+		urgency = stringOr(payload["urgency"], "normal")
+		ts := msg.CreatedAt
+		if ts == "" {
+			ts = msg.Timestamp
+		}
+		if ts != "" {
+			requestTime, _ = parseMessageTime(ts)
+		}
+		break
+	}
+	if holderID == "" {
+		return nil, fmt.Errorf("thread %q has no release-request with identifiable holder", threadID)
+	}
+
+	timeoutMinutes := NormalTimeoutMinutes
+	if urgency == "urgent" {
+		timeoutMinutes = UrgentTimeoutMinutes
+	}
+	if !requestTime.IsZero() && time.Since(requestTime) < time.Duration(timeoutMinutes)*time.Minute {
+		return nil, fmt.Errorf("thread %q has not exceeded %d-minute %s timeout", threadID, timeoutMinutes, urgency)
+	}
+
+	released, err := c.ReleaseByPattern(ctx, holderID, file)
+	if err != nil {
+		return nil, fmt.Errorf("release by pattern: %w", err)
+	}
+
+	return &ForceReleaseResult{HolderID: holderID, Released: released}, nil
+}
+
 // --- Internal ---
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, out any) error {

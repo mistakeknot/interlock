@@ -281,11 +281,11 @@ exec "$BINARY" "$@"
 
 ---
 
-## 7. dispatch.sh Script in hub/clavain
+## 7. dispatch.sh Script in os/clavain
 
 ### Location & Purpose
 ```
-/root/projects/Interverse/hub/clavain/scripts/dispatch.sh
+/root/projects/Interverse/os/clavain/scripts/dispatch.sh
 ```
 
 Wrapper around `codex exec` with sensible defaults for multi-agent dispatch. Not directly related to the MCP server pattern, but shows how agents invoke external tools.
@@ -321,7 +321,7 @@ The `dispatch.sh` script is a Codex wrapper, not an MCP server. It's included in
 
 ### Location
 ```
-/root/projects/Interverse/hub/clavain/config/dispatch/tiers.yaml
+/root/projects/Interverse/os/clavain/config/dispatch/tiers.yaml
 ```
 
 ### Contents
@@ -467,6 +467,6 @@ Implement graceful degradation:
 - `.claude-plugin/plugin.json` — MCP server config
 
 **Related Documentation:**
-- `/root/projects/Interverse/hub/clavain/scripts/dispatch.sh` — Multi-agent dispatch wrapper (610 lines)
-- `/root/projects/Interverse/hub/clavain/config/dispatch/tiers.yaml` — Model tier config
+- `/root/projects/Interverse/os/clavain/scripts/dispatch.sh` — Multi-agent dispatch wrapper (610 lines)
+- `/root/projects/Interverse/os/clavain/config/dispatch/tiers.yaml` — Model tier config
 
