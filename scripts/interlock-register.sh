@@ -31,13 +31,27 @@ else
     PROJECT="$(basename "$PWD")"
 fi
 
-# Extract capabilities from per-agent capability file (written by each plugin's session hook)
+# Collect capabilities from installed plugins' agentCapabilities in plugin.json,
+# then merge any per-agent override file. Result: deduplicated JSON array.
 CAPABILITIES="[]"
+
+# 1. Scan installed plugins for agentCapabilities declarations
+PLUGIN_CACHE="${HOME}/.claude/plugins/cache"
+if [[ -d "$PLUGIN_CACHE" ]]; then
+    PLUGIN_CAPS=$(find "$PLUGIN_CACHE" -path '*/.claude-plugin/plugin.json' -print0 \
+        | xargs -0 jq -r '.agentCapabilities // {} | [.[]] | add // empty | .[]' 2>/dev/null \
+        | sort -u | jq -Rn '[inputs | select(length > 0)]') || PLUGIN_CAPS="[]"
+    if [[ "$PLUGIN_CAPS" != "[]" ]] && [[ -n "$PLUGIN_CAPS" ]]; then
+        CAPABILITIES="$PLUGIN_CAPS"
+    fi
+fi
+
+# 2. Merge per-agent override file (backward compatible supplement)
 CAPS_FILE="${HOME}/.config/clavain/capabilities-${AGENT_NAME}.json"
 if [[ -f "$CAPS_FILE" ]]; then
     AGENT_CAPS=$(jq -c '.' "$CAPS_FILE" 2>/dev/null)
     if [[ -n "$AGENT_CAPS" ]] && [[ "$AGENT_CAPS" != "null" ]]; then
-        CAPABILITIES="$AGENT_CAPS"
+        CAPABILITIES=$(jq -nc --argjson a "$CAPABILITIES" --argjson b "$AGENT_CAPS" '$a + $b | unique')
     fi
 fi
 
