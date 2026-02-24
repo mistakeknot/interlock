@@ -12,6 +12,14 @@ A git pre-commit hook provides mandatory enforcement — if you try to commit a 
 
 ## Installation
 
+First, add the [interagency marketplace](https://github.com/mistakeknot/interagency-marketplace) (one-time setup):
+
+```bash
+/plugin marketplace add mistakeknot/interagency-marketplace
+```
+
+Then install the plugin:
+
 ```bash
 /plugin install interlock
 ```
