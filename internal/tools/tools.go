@@ -28,7 +28,7 @@ const (
 	negotiationPollInterval = client.NegotiationPollInterval
 )
 
-// RegisterAll registers all 14 MCP tools with the server.
+// RegisterAll registers all 15 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -38,6 +38,7 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		myReservations(c),
 		sendMessage(c),
 		fetchInbox(c),
+		listTopicMessages(c),
 		listAgents(c),
 		requestRelease(c),
 		negotiateRelease(c),
@@ -258,15 +259,20 @@ func sendMessage(c *client.Client) server.ServerTool {
 				mcp.Description("Message body"),
 				mcp.Required(),
 			),
+			mcp.WithString("topic",
+				mcp.Description("Optional topic for cross-cutting discovery (e.g., 'build', 'review', 'deploy'). Lowercased at write time."),
+			),
 		),
 		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := req.GetArguments()
 			to, _ := args["to"].(string)
 			body, _ := args["body"].(string)
+			topic, _ := args["topic"].(string)
 			if to == "" || body == "" {
 				return mcputil.ValidationError("to and body are required")
 			}
-			if err := c.SendMessage(ctx, to, body); err != nil {
+			opts := client.MessageOptions{Topic: topic}
+			if err := c.SendMessageFull(ctx, to, body, opts); err != nil {
 				return toToolError(err), nil
 			}
 			emitSignal("message", fmt.Sprintf("sent message to %s", to))
@@ -900,6 +906,50 @@ func findSignalScript() string {
 		}
 	}
 	return ""
+}
+
+// --- Topic discovery tools ---
+
+func listTopicMessages(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("list_topic_messages",
+			mcp.WithDescription("List messages by topic for cross-cutting discovery. Allows late-joining or oversight agents to find conversations without being original recipients."),
+			mcp.WithString("topic",
+				mcp.Description("Topic to search for (e.g., 'build', 'review', 'deploy'). Case-insensitive."),
+				mcp.Required(),
+			),
+			mcp.WithString("since_cursor",
+				mcp.Description("Pagination cursor — only return messages after this cursor"),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Maximum number of messages to return (default: 100, max: 1000)"),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			topic, _ := args["topic"].(string)
+			if topic == "" {
+				return mcputil.ValidationError("topic is required")
+			}
+			sinceCursor, _ := args["since_cursor"].(string)
+			limit := 0
+			if v, ok := args["limit"].(float64); ok {
+				limit = int(v)
+			}
+			messages, err := c.TopicMessages(ctx, topic, sinceCursor, limit)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			if messages == nil {
+				messages = make([]client.Message, 0)
+			}
+			return jsonResult(map[string]any{
+				"topic":    topic,
+				"messages": messages,
+				"count":    len(messages),
+			})
+		},
+	}
 }
 
 // --- Contact policy tools ---

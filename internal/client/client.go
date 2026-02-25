@@ -128,6 +128,7 @@ type Message struct {
 type MessageOptions struct {
 	ThreadID    string
 	Subject     string
+	Topic       string
 	Importance  string
 	AckRequired bool
 }
@@ -303,6 +304,9 @@ func (c *Client) SendMessageFull(ctx context.Context, to, body string, opts Mess
 	if opts.Subject != "" {
 		msg["subject"] = opts.Subject
 	}
+	if opts.Topic != "" {
+		msg["topic"] = opts.Topic
+	}
 	if opts.Importance != "" {
 		msg["importance"] = opts.Importance
 	}
@@ -310,6 +314,28 @@ func (c *Client) SendMessageFull(ctx context.Context, to, body string, opts Mess
 		msg["ack_required"] = true
 	}
 	return c.doJSON(ctx, "POST", "/api/messages", msg, nil)
+}
+
+// TopicMessages fetches messages by topic for cross-cutting discovery.
+func (c *Client) TopicMessages(ctx context.Context, topic string, sinceCursor string, limit int) ([]Message, error) {
+	q := url.Values{}
+	if sinceCursor != "" {
+		q.Set("since_cursor", sinceCursor)
+	}
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := "/api/topics/" + url.PathEscape(c.project) + "/" + url.PathEscape(topic)
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var result struct {
+		Messages []Message `json:"messages"`
+	}
+	if err := c.doJSON(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result.Messages, nil
 }
 
 // FetchInbox fetches inbox messages for this agent.
