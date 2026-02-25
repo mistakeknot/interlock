@@ -5,7 +5,9 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mistakeknot/interbase/toolerror"
 	"github.com/mistakeknot/interlock/internal/client"
 )
 
@@ -72,22 +75,28 @@ func reserveFiles(c *client.Client) server.ServerTool {
 			exclusive := boolOr(args["exclusive"], true)
 
 			if len(patterns) == 0 {
-				return mcp.NewToolResultError("patterns is required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "patterns is required").JSON()), nil
 			}
 
+			type resError struct {
+				Pattern string `json:"pattern"`
+				Error   string `json:"error"`
+				Type    string `json:"type"`
+			}
 			type result struct {
-				Reservations []any    `json:"reservations"`
-				Errors       []string `json:"errors,omitempty"`
+				Reservations []any      `json:"reservations"`
+				Errors       []resError `json:"errors,omitempty"`
 			}
 			var res result
 			for _, p := range patterns {
 				r, err := c.CreateReservation(ctx, p, reason, ttl, exclusive)
 				if err != nil {
-					if ce, ok := err.(*client.ConflictError); ok {
-						res.Errors = append(res.Errors, fmt.Sprintf("%s: conflict with %v", p, ce.Conflicts))
-					} else {
-						res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", p, err))
+					te := toolerror.Wrap(err)
+					var ce *client.ConflictError
+					if errors.As(err, &ce) {
+						te = toolerror.New(toolerror.ErrConflict, "%s: conflict with %v", p, ce.Conflicts).WithRecoverable(true)
 					}
+					res.Errors = append(res.Errors, resError{Pattern: p, Error: te.Message, Type: te.Type})
 					continue
 				}
 				res.Reservations = append(res.Reservations, r)
@@ -112,17 +121,23 @@ func releaseFiles(c *client.Client) server.ServerTool {
 			args := req.GetArguments()
 			ids := toStringSlice(args["reservation_ids"])
 			if len(ids) == 0 {
-				return mcp.NewToolResultError("reservation_ids is required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "reservation_ids is required").JSON()), nil
 			}
 
+			type releaseError struct {
+				ID    string `json:"id"`
+				Error string `json:"error"`
+				Type  string `json:"type"`
+			}
 			type result struct {
-				Released []string `json:"released"`
-				Errors   []any    `json:"errors,omitempty"`
+				Released []string       `json:"released"`
+				Errors   []releaseError `json:"errors,omitempty"`
 			}
 			var res result
 			for _, id := range ids {
 				if err := c.DeleteReservation(ctx, id); err != nil {
-					res.Errors = append(res.Errors, map[string]string{"id": id, "error": err.Error()})
+					te := toolerror.Wrap(err)
+					res.Errors = append(res.Errors, releaseError{ID: id, Error: te.Message, Type: te.Type})
 				} else {
 					res.Released = append(res.Released, id)
 					emitSignal("release", fmt.Sprintf("released %s", id))
@@ -144,7 +159,7 @@ func releaseAll(c *client.Client) server.ServerTool {
 				"project": c.Project(),
 			})
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("list reservations: %v", err)), nil
+				return toToolError(err), nil
 			}
 
 			count := 0
@@ -177,7 +192,7 @@ func checkConflicts(c *client.Client) server.ServerTool {
 			args := req.GetArguments()
 			patterns := toStringSlice(args["patterns"])
 			if len(patterns) == 0 {
-				return mcp.NewToolResultError("patterns is required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "patterns is required").JSON()), nil
 			}
 
 			type result struct {
@@ -190,7 +205,7 @@ func checkConflicts(c *client.Client) server.ServerTool {
 			for _, p := range patterns {
 				conflicts, err := c.CheckConflicts(ctx, p)
 				if err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("check %s: %v", p, err)), nil
+					return toToolError(err), nil
 				}
 				if len(conflicts) > 0 {
 					for _, cd := range conflicts {
@@ -216,7 +231,7 @@ func myReservations(c *client.Client) server.ServerTool {
 				"project": c.Project(),
 			})
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("list reservations: %v", err)), nil
+				return toToolError(err), nil
 			}
 			if reservations == nil {
 				reservations = make([]client.Reservation, 0)
@@ -246,10 +261,10 @@ func sendMessage(c *client.Client) server.ServerTool {
 			to, _ := args["to"].(string)
 			body, _ := args["body"].(string)
 			if to == "" || body == "" {
-				return mcp.NewToolResultError("to and body are required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "to and body are required").JSON()), nil
 			}
 			if err := c.SendMessage(ctx, to, body); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("send message: %v", err)), nil
+				return toToolError(err), nil
 			}
 			emitSignal("message", fmt.Sprintf("sent message to %s", to))
 			return jsonResult(map[string]any{"sent": true, "to": to})
@@ -270,7 +285,7 @@ func fetchInbox(c *client.Client) server.ServerTool {
 			cursor, _ := args["cursor"].(string)
 			messages, nextCursor, err := c.FetchInbox(ctx, cursor)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("fetch inbox: %v", err)), nil
+				return toToolError(err), nil
 			}
 			timeouts, timeoutErr := c.CheckExpiredNegotiations(ctx)
 			if messages == nil {
@@ -316,7 +331,7 @@ func requestRelease(c *client.Client) server.ServerTool {
 			pattern, _ := args["pattern"].(string)
 			reason, _ := args["reason"].(string)
 			if agentName == "" || pattern == "" || reason == "" {
-				return mcp.NewToolResultError("agent_name, pattern, and reason are required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "agent_name, pattern, and reason are required").JSON()), nil
 			}
 			body, _ := json.Marshal(map[string]string{
 				"type":      "release-request",
@@ -325,7 +340,7 @@ func requestRelease(c *client.Client) server.ServerTool {
 				"requester": c.AgentName(),
 			})
 			if err := c.SendMessage(ctx, agentName, string(body)); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("send release request: %v", err)), nil
+				return toToolError(err), nil
 			}
 			return jsonResult(map[string]any{
 				"sent": true,
@@ -368,15 +383,15 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			waitSeconds := intOr(args["wait_seconds"], 0)
 
 			if agentName == "" || file == "" || reason == "" {
-				return mcp.NewToolResultError("agent_name, file, and reason are required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "agent_name, file, and reason are required").JSON()), nil
 			}
 			if urgency != "normal" && urgency != "urgent" {
-				return mcp.NewToolResultError("urgency must be 'normal' or 'urgent'"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "urgency must be 'normal' or 'urgent'").JSON()), nil
 			}
 
 			conflicts, err := c.CheckConflicts(ctx, file)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("check conflicts: %v", err)), nil
+				return toToolError(err), nil
 			}
 
 			holderID := ""
@@ -387,12 +402,12 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 				}
 			}
 			if holderID == "" {
-				return mcp.NewToolResultError(fmt.Sprintf("agent %q does not hold a reservation matching %q", agentName, file)), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrNotFound, "agent %q does not hold a reservation matching %q", agentName, file).JSON()), nil
 			}
 
 			threadID := generateNegotiateID()
 			if threadID == "" {
-				return mcp.NewToolResultError("failed to generate negotiation thread ID"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrInternal, "failed to generate negotiation thread ID").JSON()), nil
 			}
 			bodyBytes, err := json.Marshal(map[string]any{
 				"type":      "release-request",
@@ -403,7 +418,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 				"thread_id": threadID,
 			})
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("marshal release request: %v", err)), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrInternal, "marshal release request: %v", err).JSON()), nil
 			}
 
 			importance := "normal"
@@ -419,7 +434,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 				Importance:  importance,
 				AckRequired: ackRequired,
 			}); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("send release negotiation: %v", err)), nil
+				return toToolError(err), nil
 			}
 
 			if waitSeconds <= 0 {
@@ -441,7 +456,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 					consecutiveErrors++
 					lastPollErr = pollErr
 					if consecutiveErrors >= maxConsecutiveErrors {
-						return mcp.NewToolResultError(fmt.Sprintf("poll thread %q: %d consecutive errors, last: %v", threadID, consecutiveErrors, lastPollErr)), nil
+						return mcp.NewToolResultError(toolerror.New(toolerror.ErrTransient, "poll thread %q: %d consecutive errors, last: %v", threadID, consecutiveErrors, lastPollErr).JSON()), nil
 					}
 				} else {
 					consecutiveErrors = 0
@@ -471,7 +486,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			// Final check to avoid lost wakeups near the deadline.
 			status, payload, err := pollNegotiationThread(ctx, c, threadID)
 			if err != nil && consecutiveErrors+1 >= maxConsecutiveErrors {
-				return mcp.NewToolResultError(fmt.Sprintf("final poll thread %q: %v", threadID, err)), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrTransient, "final poll thread %q: %v", threadID, err).JSON()), nil
 			}
 			if status != "" {
 				result := map[string]any{
@@ -532,10 +547,10 @@ func respondToRelease(c *client.Client) server.ServerTool {
 			reason, _ := args["reason"].(string)
 
 			if threadID == "" || requester == "" || action == "" || file == "" {
-				return mcp.NewToolResultError("thread_id, requester, action, and file are required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "thread_id, requester, action, and file are required").JSON()), nil
 			}
 			if action != "release" && action != "defer" {
-				return mcp.NewToolResultError("action must be 'release' or 'defer'"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "action must be 'release' or 'defer'").JSON()), nil
 			}
 
 			if action == "release" {
@@ -628,12 +643,12 @@ func forceReleaseNegotiation(c *client.Client) server.ServerTool {
 			reason, _ := args["reason"].(string)
 
 			if threadID == "" || file == "" || reason == "" {
-				return mcp.NewToolResultError("thread_id, file, and reason are required"), nil
+				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "thread_id, file, and reason are required").JSON()), nil
 			}
 
 			result, err := c.ForceReleaseNegotiation(ctx, threadID, file, reason)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("force release: %v", err)), nil
+				return toToolError(err), nil
 			}
 
 			// Only send release-ack if we actually released something.
@@ -701,7 +716,7 @@ func listAgents(c *client.Client) server.ServerTool {
 				agents, err = c.ListAgents(ctx)
 			}
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("list agents: %v", err)), nil
+				return toToolError(err), nil
 			}
 			if agents == nil {
 				agents = make([]client.Agent, 0)
@@ -712,6 +727,56 @@ func listAgents(c *client.Client) server.ServerTool {
 }
 
 // --- Helpers ---
+
+// toToolError converts a client error to a structured ToolError MCP result.
+// It maps IntermuteError HTTP codes and ConflictError to the appropriate ToolError types.
+func toToolError(err error) *mcp.CallToolResult {
+	// ConflictError → ErrConflict (recoverable — agent can retry after release)
+	var ce *client.ConflictError
+	if errors.As(err, &ce) {
+		te := toolerror.New(toolerror.ErrConflict, "%v", ce).WithRecoverable(true)
+		te.Data = map[string]any{"conflicts": ce.Conflicts}
+		return mcp.NewToolResultError(te.JSON())
+	}
+
+	// IntermuteError → map HTTP status to error type
+	var ie *client.IntermuteError
+	if errors.As(err, &ie) {
+		switch {
+		case ie.Code == 404:
+			return mcp.NewToolResultError(toolerror.New(toolerror.ErrNotFound, "%s", ie.Message).JSON())
+		case ie.Code == 403:
+			return mcp.NewToolResultError(toolerror.New(toolerror.ErrPermission, "%s", ie.Message).JSON())
+		case ie.Code == 422 || ie.Code == 400:
+			return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "%s", ie.Message).JSON())
+		case ie.Code == 429 || ie.Code >= 500:
+			te := toolerror.New(toolerror.ErrTransient, "%s", ie.Message)
+			if ie.RetryAfter > 0 {
+				te.Data = map[string]any{"retry_after": ie.RetryAfter}
+			}
+			return mcp.NewToolResultError(te.JSON())
+		default:
+			return mcp.NewToolResultError(toolerror.Wrap(ie).JSON())
+		}
+	}
+
+	// Connection errors → ErrTransient
+	if isConnError(err) {
+		return mcp.NewToolResultError(toolerror.New(toolerror.ErrTransient, "intermute unavailable: %v", err).JSON())
+	}
+
+	// Everything else → ErrInternal
+	return mcp.NewToolResultError(toolerror.Wrap(err).JSON())
+}
+
+// isConnError returns true if err contains a network connection error.
+func isConnError(err error) bool {
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+	return strings.Contains(err.Error(), "intermute unavailable")
+}
 
 func jsonResult(v any) (*mcp.CallToolResult, error) {
 	data, err := json.Marshal(v)
