@@ -16,6 +16,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mistakeknot/interbase/mcputil"
 	"github.com/mistakeknot/interbase/toolerror"
 	"github.com/mistakeknot/interlock/internal/client"
 )
@@ -75,7 +76,7 @@ func reserveFiles(c *client.Client) server.ServerTool {
 			exclusive := boolOr(args["exclusive"], true)
 
 			if len(patterns) == 0 {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "patterns is required").JSON()), nil
+				return mcputil.ValidationError("patterns is required")
 			}
 
 			type resError struct {
@@ -121,7 +122,7 @@ func releaseFiles(c *client.Client) server.ServerTool {
 			args := req.GetArguments()
 			ids := toStringSlice(args["reservation_ids"])
 			if len(ids) == 0 {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "reservation_ids is required").JSON()), nil
+				return mcputil.ValidationError("reservation_ids is required")
 			}
 
 			type releaseError struct {
@@ -192,7 +193,7 @@ func checkConflicts(c *client.Client) server.ServerTool {
 			args := req.GetArguments()
 			patterns := toStringSlice(args["patterns"])
 			if len(patterns) == 0 {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "patterns is required").JSON()), nil
+				return mcputil.ValidationError("patterns is required")
 			}
 
 			type result struct {
@@ -261,7 +262,7 @@ func sendMessage(c *client.Client) server.ServerTool {
 			to, _ := args["to"].(string)
 			body, _ := args["body"].(string)
 			if to == "" || body == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "to and body are required").JSON()), nil
+				return mcputil.ValidationError("to and body are required")
 			}
 			if err := c.SendMessage(ctx, to, body); err != nil {
 				return toToolError(err), nil
@@ -331,7 +332,7 @@ func requestRelease(c *client.Client) server.ServerTool {
 			pattern, _ := args["pattern"].(string)
 			reason, _ := args["reason"].(string)
 			if agentName == "" || pattern == "" || reason == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "agent_name, pattern, and reason are required").JSON()), nil
+				return mcputil.ValidationError("agent_name, pattern, and reason are required")
 			}
 			body, _ := json.Marshal(map[string]string{
 				"type":      "release-request",
@@ -383,10 +384,10 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			waitSeconds := intOr(args["wait_seconds"], 0)
 
 			if agentName == "" || file == "" || reason == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "agent_name, file, and reason are required").JSON()), nil
+				return mcputil.ValidationError("agent_name, file, and reason are required")
 			}
 			if urgency != "normal" && urgency != "urgent" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "urgency must be 'normal' or 'urgent'").JSON()), nil
+				return mcputil.ValidationError("urgency must be 'normal' or 'urgent'")
 			}
 
 			conflicts, err := c.CheckConflicts(ctx, file)
@@ -402,12 +403,12 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 				}
 			}
 			if holderID == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrNotFound, "agent %q does not hold a reservation matching %q", agentName, file).JSON()), nil
+				return mcputil.NotFoundError("agent %q does not hold a reservation matching %q", agentName, file)
 			}
 
 			threadID := generateNegotiateID()
 			if threadID == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrInternal, "failed to generate negotiation thread ID").JSON()), nil
+				return mcputil.WrapError(errors.New("failed to generate negotiation thread ID"))
 			}
 			bodyBytes, err := json.Marshal(map[string]any{
 				"type":      "release-request",
@@ -418,7 +419,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 				"thread_id": threadID,
 			})
 			if err != nil {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrInternal, "marshal release request: %v", err).JSON()), nil
+				return mcputil.WrapError(fmt.Errorf("marshal release request: %w", err))
 			}
 
 			importance := "normal"
@@ -456,7 +457,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 					consecutiveErrors++
 					lastPollErr = pollErr
 					if consecutiveErrors >= maxConsecutiveErrors {
-						return mcp.NewToolResultError(toolerror.New(toolerror.ErrTransient, "poll thread %q: %d consecutive errors, last: %v", threadID, consecutiveErrors, lastPollErr).JSON()), nil
+						return mcputil.TransientError("poll thread %q: %d consecutive errors, last: %v", threadID, consecutiveErrors, lastPollErr)
 					}
 				} else {
 					consecutiveErrors = 0
@@ -486,7 +487,7 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			// Final check to avoid lost wakeups near the deadline.
 			status, payload, err := pollNegotiationThread(ctx, c, threadID)
 			if err != nil && consecutiveErrors+1 >= maxConsecutiveErrors {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrTransient, "final poll thread %q: %v", threadID, err).JSON()), nil
+				return mcputil.TransientError("final poll thread %q: %v", threadID, err)
 			}
 			if status != "" {
 				result := map[string]any{
@@ -547,10 +548,10 @@ func respondToRelease(c *client.Client) server.ServerTool {
 			reason, _ := args["reason"].(string)
 
 			if threadID == "" || requester == "" || action == "" || file == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "thread_id, requester, action, and file are required").JSON()), nil
+				return mcputil.ValidationError("thread_id, requester, action, and file are required")
 			}
 			if action != "release" && action != "defer" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "action must be 'release' or 'defer'").JSON()), nil
+				return mcputil.ValidationError("action must be 'release' or 'defer'")
 			}
 
 			if action == "release" {
@@ -643,7 +644,7 @@ func forceReleaseNegotiation(c *client.Client) server.ServerTool {
 			reason, _ := args["reason"].(string)
 
 			if threadID == "" || file == "" || reason == "" {
-				return mcp.NewToolResultError(toolerror.New(toolerror.ErrValidation, "thread_id, file, and reason are required").JSON()), nil
+				return mcputil.ValidationError("thread_id, file, and reason are required")
 			}
 
 			result, err := c.ForceReleaseNegotiation(ctx, threadID, file, reason)

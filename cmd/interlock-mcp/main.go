@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mistakeknot/interbase/mcputil"
 	"github.com/mistakeknot/interlock/internal/client"
 	"github.com/mistakeknot/interlock/internal/tools"
 )
@@ -20,10 +21,12 @@ func main() {
 		client.WithAgentName(getAgentName()),
 	)
 
+	metrics := mcputil.NewMetrics()
 	s := server.NewMCPServer(
 		"interlock",
 		"0.1.0",
 		server.WithToolCapabilities(true),
+		server.WithToolHandlerMiddleware(metrics.Instrument()),
 	)
 
 	tools.RegisterAll(s, c)
