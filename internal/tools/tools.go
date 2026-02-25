@@ -28,7 +28,7 @@ const (
 	negotiationPollInterval = client.NegotiationPollInterval
 )
 
-// RegisterAll registers all 12 MCP tools with the server.
+// RegisterAll registers all 14 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -43,6 +43,8 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		negotiateRelease(c),
 		respondToRelease(c),
 		forceReleaseNegotiation(c),
+		setContactPolicy(c),
+		getContactPolicy(c),
 	)
 }
 
@@ -898,4 +900,50 @@ func findSignalScript() string {
 		}
 	}
 	return ""
+}
+
+// --- Contact policy tools ---
+
+func setContactPolicy(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("set_contact_policy",
+			mcp.WithDescription("Set your agent's contact policy controlling who can send you messages. Levels: open (anyone, default), auto (agents with overlapping file reservations), contacts_only (explicit whitelist), block_all (reject everything). Idempotent: yes."),
+			mcp.WithString("policy",
+				mcp.Description("Policy level: open, auto, contacts_only, or block_all"),
+				mcp.Required(),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			policy, _ := args["policy"].(string)
+			if policy == "" {
+				return mcputil.ValidationError("policy is required")
+			}
+			switch policy {
+			case "open", "auto", "contacts_only", "block_all":
+				// valid
+			default:
+				return mcputil.ValidationError("policy must be open, auto, contacts_only, or block_all")
+			}
+			if err := c.SetContactPolicy(ctx, policy); err != nil {
+				return toToolError(err), nil
+			}
+			return jsonResult(map[string]any{"policy": policy, "updated": true})
+		},
+	}
+}
+
+func getContactPolicy(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("get_contact_policy",
+			mcp.WithDescription("Get your agent's current contact policy. Returns the policy level controlling who can send you messages. Idempotent: yes."),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			policy, err := c.GetContactPolicy(ctx)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			return jsonResult(map[string]any{"policy": policy})
+		},
+	}
 }

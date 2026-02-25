@@ -267,6 +267,23 @@ func (c *Client) DiscoverAgents(ctx context.Context, capabilities []string) ([]A
 	return result.Agents, nil
 }
 
+// SetContactPolicy sets this agent's contact policy.
+func (c *Client) SetContactPolicy(ctx context.Context, policy string) error {
+	return c.doJSON(ctx, "POST", "/api/agents/"+url.PathEscape(c.agentID)+"/policy",
+		map[string]string{"policy": policy}, nil)
+}
+
+// GetContactPolicy returns this agent's current contact policy.
+func (c *Client) GetContactPolicy(ctx context.Context) (string, error) {
+	var result struct {
+		Policy string `json:"policy"`
+	}
+	if err := c.doJSON(ctx, "GET", "/api/agents/"+url.PathEscape(c.agentID)+"/policy", nil, &result); err != nil {
+		return "", err
+	}
+	return result.Policy, nil
+}
+
 // SendMessage sends a message to another agent.
 func (c *Client) SendMessage(ctx context.Context, to, body string) error {
 	return c.SendMessageFull(ctx, to, body, MessageOptions{})
