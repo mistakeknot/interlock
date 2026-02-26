@@ -191,9 +191,13 @@ if [[ -n "$CONFLICT" ]]; then
     fi
 
     # BLOCKING response -- prevents the edit from proceeding
-    cat <<ENDJSON
-{"decision": "block", "reason": "INTERLOCK: ${REL_PATH} is exclusively reserved by ${HELD_BY} (${REASON_DISPLAY}expires ${EXPIRES_DISPLAY}). Work on other files, use request_release(agent_name=\"${HELD_BY}\"), or wait for expiry."}
-ENDJSON
+    # SAFETY: use jq --arg to prevent JSON injection from intermute response data.
+    jq -nc \
+        --arg fp "$REL_PATH" \
+        --arg hb "$HELD_BY" \
+        --arg rd "$REASON_DISPLAY" \
+        --arg ed "$EXPIRES_DISPLAY" \
+        '{"decision": "block", "reason": ("INTERLOCK: " + $fp + " is exclusively reserved by " + $hb + " (" + $rd + "expires " + $ed + "). Work on other files, use request_release(agent_name=\"" + $hb + "\"), or wait for expiry.")}'
     exit 0
 fi
 
