@@ -365,6 +365,48 @@ func (c *Client) BroadcastMessage(ctx context.Context, topic, body, subject stri
 	return &result, nil
 }
 
+// StaleAckItem represents a message requiring ack that hasn't been acked within a TTL.
+type StaleAckItem struct {
+	ID         string   `json:"id"`
+	ThreadID   string   `json:"thread_id"`
+	Project    string   `json:"project"`
+	From       string   `json:"from"`
+	To         []string `json:"to"`
+	Subject    string   `json:"subject,omitempty"`
+	Body       string   `json:"body"`
+	CreatedAt  string   `json:"created_at"`
+	Kind       string   `json:"kind"`
+	ReadAt     *string  `json:"read_at"`
+	AgeSeconds int      `json:"age_seconds"`
+}
+
+// StaleAcksResult captures the response from the stale-acks endpoint.
+type StaleAcksResult struct {
+	Project    string         `json:"project"`
+	Agent      string         `json:"agent"`
+	TTLSeconds int            `json:"ttl_seconds"`
+	Count      int            `json:"count"`
+	Messages   []StaleAckItem `json:"messages"`
+}
+
+// FetchStaleAcks returns messages requiring ack that haven't been acked within ttlSeconds.
+func (c *Client) FetchStaleAcks(ctx context.Context, ttlSeconds, limit int) (*StaleAcksResult, error) {
+	q := url.Values{}
+	q.Set("project", c.project)
+	if ttlSeconds >= 0 {
+		q.Set("ttl_seconds", fmt.Sprintf("%d", ttlSeconds))
+	}
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := "/api/inbox/" + url.PathEscape(c.agentID) + "/stale-acks?" + q.Encode()
+	var result StaleAcksResult
+	if err := c.doJSON(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // FetchInbox fetches inbox messages for this agent.
 func (c *Client) FetchInbox(ctx context.Context, cursor string) ([]Message, string, error) {
 	q := url.Values{}

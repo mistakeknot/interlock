@@ -28,7 +28,7 @@ const (
 	negotiationPollInterval = client.NegotiationPollInterval
 )
 
-// RegisterAll registers all 16 MCP tools with the server.
+// RegisterAll registers all 17 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -39,6 +39,7 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		sendMessage(c),
 		broadcastMessage(c),
 		fetchInbox(c),
+		fetchStaleAcks(c),
 		listTopicMessages(c),
 		listAgents(c),
 		requestRelease(c),
@@ -354,6 +355,46 @@ func fetchInbox(c *client.Client) server.ServerTool {
 				result["negotiation_timeouts"] = timeouts
 			}
 			return jsonResult(result)
+		},
+	}
+}
+
+func fetchStaleAcks(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("fetch_stale_acks",
+			mcp.WithDescription("Find messages requiring acknowledgment that haven't been acked within a TTL. "+
+				"Returns overdue acks with age in seconds. Default TTL: 1800s (30 min)."),
+			mcp.WithNumber("ttl_seconds",
+				mcp.Description("TTL in seconds — messages older than this without ack are returned (default: 1800)"),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Max results to return (default: 20, max: 1000)"),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			ttl := 1800
+			if v, ok := args["ttl_seconds"].(float64); ok {
+				ttl = int(v)
+			}
+			limit := 20
+			if v, ok := args["limit"].(float64); ok && int(v) > 0 {
+				limit = int(v)
+			}
+			result, err := c.FetchStaleAcks(ctx, ttl, limit)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			if result.Count > 0 {
+				emitSignal("message", fmt.Sprintf("%d overdue ack(s) (TTL: %ds)", result.Count, result.TTLSeconds))
+			}
+			return jsonResult(map[string]any{
+				"project":     result.Project,
+				"agent":       result.Agent,
+				"ttl_seconds": result.TTLSeconds,
+				"count":       result.Count,
+				"messages":    result.Messages,
+			})
 		},
 	}
 }
