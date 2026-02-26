@@ -28,7 +28,7 @@ const (
 	negotiationPollInterval = client.NegotiationPollInterval
 )
 
-// RegisterAll registers all 17 MCP tools with the server.
+// RegisterAll registers all 20 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -48,6 +48,9 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		forceReleaseNegotiation(c),
 		setContactPolicy(c),
 		getContactPolicy(c),
+		listWindowIdentities(c),
+		renameWindow(c),
+		expireWindow(c),
 	)
 }
 
@@ -1076,6 +1079,97 @@ func getContactPolicy(c *client.Client) server.ServerTool {
 				return toToolError(err), nil
 			}
 			return jsonResult(map[string]any{"policy": policy})
+		},
+	}
+}
+
+// --- Window identity tools ---
+
+func listWindowIdentities(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("list_window_identities",
+			mcp.WithDescription("List active window identities for this project. Each window identity maps a tmux window UUID to a persistent agent ID, so agents maintain stable identities across session restarts. Idempotent: yes."),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			windows, err := c.ListWindows(ctx)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			return jsonResult(map[string]any{
+				"project": c.Project(),
+				"count":   len(windows),
+				"windows": windows,
+			})
+		},
+	}
+}
+
+func renameWindow(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("rename_window",
+			mcp.WithDescription("Update the display name for a window identity. The window UUID must already exist. Use this to give a more descriptive name to your agent's window identity."),
+			mcp.WithString("window_uuid",
+				mcp.Description("The window UUID to rename"),
+				mcp.Required(),
+			),
+			mcp.WithString("display_name",
+				mcp.Description("New display name for the window"),
+				mcp.Required(),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			windowUUID, _ := args["window_uuid"].(string)
+			displayName, _ := args["display_name"].(string)
+			if windowUUID == "" || displayName == "" {
+				return mcputil.ValidationError("window_uuid and display_name are required")
+			}
+			// Lookup existing to get the agent_id
+			existing, err := c.LookupWindow(ctx, windowUUID)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			if existing == nil {
+				return mcputil.ValidationError("no active window identity found for UUID: " + windowUUID)
+			}
+			// Upsert with new display name
+			result, err := c.UpsertWindow(ctx, windowUUID, existing.AgentID, displayName)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			return jsonResult(map[string]any{
+				"window_uuid":  result.WindowUUID,
+				"agent_id":     result.AgentID,
+				"display_name": result.DisplayName,
+				"updated":      true,
+			})
+		},
+	}
+}
+
+func expireWindow(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("expire_window",
+			mcp.WithDescription("Soft-delete a window identity by setting its expiration to now. Use when an agent is leaving permanently. The identity can be recreated later if the window UUID is reused."),
+			mcp.WithString("window_uuid",
+				mcp.Description("The window UUID to expire"),
+				mcp.Required(),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			windowUUID, _ := args["window_uuid"].(string)
+			if windowUUID == "" {
+				return mcputil.ValidationError("window_uuid is required")
+			}
+			if err := c.ExpireWindow(ctx, windowUUID); err != nil {
+				return toToolError(err), nil
+			}
+			emitSignal("coordination", fmt.Sprintf("window identity expired: %s", windowUUID))
+			return jsonResult(map[string]any{
+				"window_uuid": windowUUID,
+				"expired":     true,
+			})
 		},
 	}
 }

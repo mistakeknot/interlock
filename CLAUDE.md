@@ -4,7 +4,7 @@
 
 ## Overview
 
-MCP server wrapping intermute's HTTP API for file reservation and agent coordination. 17 tools, 4 commands, 2 skills, 3 hooks. Companion plugin for Clavain.
+MCP server wrapping intermute's HTTP API for file reservation and agent coordination. 20 tools, 4 commands, 2 skills, 3 hooks. Companion plugin for Clavain.
 
 ## Negotiation Protocol
 

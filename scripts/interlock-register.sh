@@ -55,11 +55,43 @@ if [[ -f "$CAPS_FILE" ]]; then
     fi
 fi
 
+# --- Window identity resolution ---
+# Resolve a stable window UUID so agent_id persists across session restarts.
+# Priority: INTERLOCK_WINDOW_ID env > SHA1-UUID from TMUX_PANE > empty (no persistence)
+WINDOW_UUID=""
+if [[ -n "${INTERLOCK_WINDOW_ID:-}" ]]; then
+    WINDOW_UUID="$INTERLOCK_WINDOW_ID"
+elif [[ -n "${TMUX_PANE:-}" ]]; then
+    # Derive deterministic UUID from TMUX_PANE using sha1sum
+    WINDOW_UUID=$(printf '%s' "interlock:${TMUX_PANE}" | sha1sum | cut -c1-32)
+fi
+
+AGENT_ID_DEFAULT="claude-${SESSION_ID:0:8}"
+AGENT_ID_OVERRIDE=""
+
+if [[ -n "$WINDOW_UUID" ]]; then
+    # Look up existing window identity
+    WINDOWS_RESP=$(intermute_curl GET "/api/windows?project=${PROJECT}" 2>/dev/null) || WINDOWS_RESP=""
+    if [[ -n "$WINDOWS_RESP" ]]; then
+        EXISTING=$(echo "$WINDOWS_RESP" | jq -r --arg uuid "$WINDOW_UUID" \
+            '.windows[]? | select(.window_uuid == $uuid)' 2>/dev/null) || EXISTING=""
+        if [[ -n "$EXISTING" ]]; then
+            AGENT_ID_OVERRIDE=$(echo "$EXISTING" | jq -r '.agent_id // empty' 2>/dev/null) || AGENT_ID_OVERRIDE=""
+            EXISTING_NAME=$(echo "$EXISTING" | jq -r '.display_name // empty' 2>/dev/null) || EXISTING_NAME=""
+            if [[ -n "$EXISTING_NAME" ]]; then
+                AGENT_NAME="$EXISTING_NAME"
+            fi
+        fi
+    fi
+fi
+
+REGISTER_ID="${AGENT_ID_OVERRIDE:-$AGENT_ID_DEFAULT}"
+
 # POST to intermute /api/agents
 RESPONSE=$(intermute_curl POST "/api/agents" \
     -H "Content-Type: application/json" \
     -d "$(jq -n \
-        --arg id "claude-${SESSION_ID:0:8}" \
+        --arg id "$REGISTER_ID" \
         --arg name "$AGENT_NAME" \
         --arg project "$PROJECT" \
         --arg session_id "$SESSION_ID" \
@@ -69,6 +101,22 @@ RESPONSE=$(intermute_curl POST "/api/agents" \
 
 AGENT_ID=$(echo "$RESPONSE" | jq -r '.agent_id // .id // empty' 2>/dev/null) || exit 1
 [[ -n "$AGENT_ID" ]] || exit 1
+
+# Create/update window identity mapping if we have a window UUID
+if [[ -n "$WINDOW_UUID" ]]; then
+    intermute_curl POST "/api/windows" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n \
+            --arg project "$PROJECT" \
+            --arg window_uuid "$WINDOW_UUID" \
+            --arg agent_id "$AGENT_ID" \
+            --arg display_name "$AGENT_NAME" \
+            '{project: $project, window_uuid: $window_uuid, agent_id: $agent_id, display_name: $display_name}')" \
+        >/dev/null 2>&1 || true  # Non-fatal: window identity is advisory
+
+    # Export for subsequent hooks in this session
+    export INTERLOCK_WINDOW_ID="$WINDOW_UUID"
+fi
 
 # Get agent count for context injection
 AGENTS_RESPONSE=$(intermute_curl GET "/api/agents?project=${PROJECT}" 2>/dev/null) || AGENTS_RESPONSE=""

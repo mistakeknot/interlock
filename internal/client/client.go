@@ -407,6 +407,66 @@ func (c *Client) FetchStaleAcks(ctx context.Context, ttlSeconds, limit int) (*St
 	return &result, nil
 }
 
+// WindowIdentity represents a persistent window-to-agent mapping.
+type WindowIdentity struct {
+	ID           string  `json:"id"`
+	Project      string  `json:"project"`
+	WindowUUID   string  `json:"window_uuid"`
+	AgentID      string  `json:"agent_id"`
+	DisplayName  string  `json:"display_name"`
+	CreatedAt    string  `json:"created_at"`
+	LastActiveAt string  `json:"last_active_at"`
+	ExpiresAt    *string `json:"expires_at,omitempty"`
+}
+
+// UpsertWindow creates or updates a window identity mapping.
+// On conflict (same project + window_uuid), it updates the agent_id, display_name, and touches last_active_at.
+func (c *Client) UpsertWindow(ctx context.Context, windowUUID, agentID, displayName string) (*WindowIdentity, error) {
+	body := map[string]string{
+		"project":      c.project,
+		"window_uuid":  windowUUID,
+		"agent_id":     agentID,
+		"display_name": displayName,
+	}
+	var wi WindowIdentity
+	if err := c.doJSON(ctx, "POST", "/api/windows", body, &wi); err != nil {
+		return nil, err
+	}
+	return &wi, nil
+}
+
+// ListWindows returns non-expired window identities for the configured project.
+func (c *Client) ListWindows(ctx context.Context) ([]WindowIdentity, error) {
+	path := "/api/windows?project=" + url.QueryEscape(c.project)
+	var result struct {
+		Windows []WindowIdentity `json:"windows"`
+	}
+	if err := c.doJSON(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result.Windows, nil
+}
+
+// LookupWindow finds a non-expired window identity by UUID.
+func (c *Client) LookupWindow(ctx context.Context, windowUUID string) (*WindowIdentity, error) {
+	windows, err := c.ListWindows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range windows {
+		if w.WindowUUID == windowUUID {
+			return &w, nil
+		}
+	}
+	return nil, nil
+}
+
+// ExpireWindow soft-deletes a window identity by setting expires_at = now.
+func (c *Client) ExpireWindow(ctx context.Context, windowUUID string) error {
+	path := "/api/windows/" + url.PathEscape(windowUUID) + "?project=" + url.QueryEscape(c.project)
+	return c.doJSON(ctx, "DELETE", path, nil, nil)
+}
+
 // FetchInbox fetches inbox messages for this agent.
 func (c *Client) FetchInbox(ctx context.Context, cursor string) ([]Message, string, error) {
 	q := url.Values{}
