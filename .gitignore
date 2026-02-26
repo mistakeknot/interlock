@@ -1,4 +1,5 @@
 bin/interlock-mcp
+/interlock-mcp
 tests/.venv/
 tests/.pytest_cache/
 tests/structural/__pycache__/
