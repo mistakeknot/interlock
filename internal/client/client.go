@@ -338,6 +338,33 @@ func (c *Client) TopicMessages(ctx context.Context, topic string, sinceCursor st
 	return result.Messages, nil
 }
 
+// BroadcastResult captures the outcome of a broadcast message.
+type BroadcastResult struct {
+	MessageID string   `json:"message_id"`
+	Delivered int      `json:"delivered"`
+	Denied    []string `json:"denied,omitempty"`
+}
+
+// BroadcastMessage sends a message to all agents in the project.
+// Topic is required. The server resolves recipients, excludes the sender,
+// and filters by contact policies.
+func (c *Client) BroadcastMessage(ctx context.Context, topic, body, subject string) (*BroadcastResult, error) {
+	payload := map[string]any{
+		"project": c.project,
+		"from":    c.agentID,
+		"topic":   topic,
+		"body":    body,
+	}
+	if subject != "" {
+		payload["subject"] = subject
+	}
+	var result BroadcastResult
+	if err := c.doJSON(ctx, "POST", "/api/broadcast", payload, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // FetchInbox fetches inbox messages for this agent.
 func (c *Client) FetchInbox(ctx context.Context, cursor string) ([]Message, string, error) {
 	q := url.Values{}

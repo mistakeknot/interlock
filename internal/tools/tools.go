@@ -28,7 +28,7 @@ const (
 	negotiationPollInterval = client.NegotiationPollInterval
 )
 
-// RegisterAll registers all 15 MCP tools with the server.
+// RegisterAll registers all 16 MCP tools with the server.
 func RegisterAll(s *server.MCPServer, c *client.Client) {
 	s.AddTools(
 		reserveFiles(c),
@@ -37,6 +37,7 @@ func RegisterAll(s *server.MCPServer, c *client.Client) {
 		checkConflicts(c),
 		myReservations(c),
 		sendMessage(c),
+		broadcastMessage(c),
 		fetchInbox(c),
 		listTopicMessages(c),
 		listAgents(c),
@@ -277,6 +278,46 @@ func sendMessage(c *client.Client) server.ServerTool {
 			}
 			emitSignal("message", fmt.Sprintf("sent message to %s", to))
 			return jsonResult(map[string]any{"sent": true, "to": to})
+		},
+	}
+}
+
+func broadcastMessage(c *client.Client) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("broadcast_message",
+			mcp.WithDescription("Send a message to ALL agents in the project. "+
+				"Recipients are resolved server-side; agents with block_all or contacts_only "+
+				"(if sender is not in contacts) are excluded. Rate limited to 10/min."),
+			mcp.WithString("topic",
+				mcp.Description("Topic tag for the broadcast (required). Lowercased at write time."),
+				mcp.Required(),
+			),
+			mcp.WithString("body",
+				mcp.Description("Message body"),
+				mcp.Required(),
+			),
+			mcp.WithString("subject",
+				mcp.Description("Optional subject line"),
+			),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			topic, _ := args["topic"].(string)
+			body, _ := args["body"].(string)
+			subject, _ := args["subject"].(string)
+			if topic == "" || body == "" {
+				return mcputil.ValidationError("topic and body are required")
+			}
+			result, err := c.BroadcastMessage(ctx, topic, body, subject)
+			if err != nil {
+				return toToolError(err), nil
+			}
+			emitSignal("message", fmt.Sprintf("broadcast to %d agent(s) on topic %q", result.Delivered, topic))
+			return jsonResult(map[string]any{
+				"message_id": result.MessageID,
+				"delivered":  result.Delivered,
+				"denied":     result.Denied,
+			})
 		},
 	}
 }
