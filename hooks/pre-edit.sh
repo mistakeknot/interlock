@@ -116,7 +116,41 @@ fi
 PROJECT="${INTERMUTE_PROJECT:-$(basename "$PROJECT_ROOT" 2>/dev/null)}"
 [[ -n "$PROJECT" ]] || exit 0
 
-# --- Check for conflicts with other agents ---
+# --- Check for conflicts and auto-reserve ---
+# Preferred: use ic coordination (atomic reserve, eliminates TOCTOU).
+# Fallback: use intermute HTTP API via interlock-check.sh.
+if command -v ic &>/dev/null && ic version &>/dev/null 2>&1; then
+    # Single atomic reserve call: if conflict exists, returns exit 1 with conflict info.
+    # If clear, creates the reservation (no separate check-then-reserve race).
+    # SAFETY: use jq --arg to prevent shell injection from file paths and blocker values.
+    SCOPE="${PROJECT_ROOT:-$PWD}"
+    result=$(ic --json coordination reserve \
+        --owner="$INTERMUTE_AGENT_ID" \
+        --scope="$SCOPE" \
+        --pattern="$REL_PATH" \
+        --ttl=900 \
+        --reason="auto-reserve: editing" 2>/dev/null)
+    rc=$?
+
+    if [[ $rc -eq 1 ]]; then
+        # Conflict found — Reserve returned conflict info
+        blocker=$(echo "$result" | jq -r '.conflict.blocker_owner // "unknown"' 2>/dev/null) || blocker="unknown"
+        reason=$(echo "$result" | jq -r '.conflict.blocker_reason // ""' 2>/dev/null) || reason=""
+        reason_display=""
+        if [[ -n "$reason" ]]; then
+            reason_display="\"${reason}\", "
+        fi
+        jq -nc --arg fp "$REL_PATH" --arg bl "$blocker" --arg rd "$reason_display" \
+            '{"decision":"block","reason":"INTERLOCK: \($fp) reserved by \($bl) (\($rd)use request_release or wait for expiry)."}'
+        exit 0
+    elif [[ $rc -eq 0 ]]; then
+        # Reserved successfully — allow the edit
+        exit 0
+    fi
+    # rc >= 2 means ic error — fall through to HTTP path
+fi
+
+# Fallback: check via intermute HTTP API
 CONFLICT=$("${SCRIPT_DIR}/../scripts/interlock-check.sh" "$FILE_PATH" "$INTERMUTE_AGENT_ID" 2>/dev/null) || {
     # intermute unreachable -- check if we lost connectivity
     CONNECTED_FLAG="$(connected_flag_path "$SESSION_ID")"
