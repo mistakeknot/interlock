@@ -44,7 +44,7 @@ Interlock enforces **advisory early warning** and **mandatory terminal enforceme
 - Mandatory phase (git pre-commit hook) blocks commits that include files reserved by other active agents.
 - Session lifecycle hooks (SessionStart/Stop) and signal emission use graceful degradation for best-effort behavior when connectivity drops.
 
-The design principle is: help agents make good decisions first, then guarantee no bad commit can sneak through.
+The design principle is: help agents make good decisions first, then guarantee no bad commit can sneak through. Every reservation, conflict check, and release produces a durable event in intermute — coordination failures are the highest-signal data for multi-agent quality (PHILOSOPHY.md: every action produces evidence).
 
 ## Scope and Limits
 
