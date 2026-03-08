@@ -7,7 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/mistakeknot/interbase/mcputil"
+	"github.com/mistakeknot/interbase/go/mcputil"
 	"github.com/mistakeknot/interlock/internal/client"
 	"github.com/mistakeknot/interlock/internal/tools"
 )
