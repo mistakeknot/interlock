@@ -563,6 +563,11 @@ const (
 	NormalTimeoutMinutes    = 10
 	UrgentTimeoutMinutes    = 5
 	NegotiationPollInterval = 2 * time.Second
+
+	// DeadAgentThreshold is the duration after which an agent with no
+	// heartbeat is considered dead. Force-release skips the normal timeout
+	// when the holder hasn't heartbeated within this window.
+	DeadAgentThreshold = 5 * time.Minute
 )
 
 // CheckExpiredNegotiations finds expired release requests that have no
@@ -716,11 +721,28 @@ func (c *Client) ForceReleaseNegotiation(ctx context.Context, threadID, file, re
 		return nil, fmt.Errorf("thread %q has no release-request with identifiable holder", threadID)
 	}
 
+	// Liveness check: if the holder agent is dead (no heartbeat within
+	// DeadAgentThreshold), skip the timeout — dead agents block living
+	// agents for minutes unnecessarily.
+	holderDead := false
+	if agents, err := c.ListAgents(ctx); err == nil {
+		for _, a := range agents {
+			if a.AgentID == holderID {
+				if lastSeen, err := time.Parse(time.RFC3339Nano, a.LastSeen); err == nil {
+					holderDead = time.Since(lastSeen) > DeadAgentThreshold
+				}
+				break
+			}
+		}
+	}
+	// If liveness check fails (can't reach intermute), fall through to
+	// normal timeout logic — don't block on the failure.
+
 	timeoutMinutes := NormalTimeoutMinutes
 	if urgency == "urgent" {
 		timeoutMinutes = UrgentTimeoutMinutes
 	}
-	if !requestTime.IsZero() && time.Since(requestTime) < time.Duration(timeoutMinutes)*time.Minute {
+	if !holderDead && !requestTime.IsZero() && time.Since(requestTime) < time.Duration(timeoutMinutes)*time.Minute {
 		return nil, fmt.Errorf("thread %q has not exceeded %d-minute %s timeout", threadID, timeoutMinutes, urgency)
 	}
 
