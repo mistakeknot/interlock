@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PreToolUse:Edit hook -- blocks edits to files reserved by other agents,
 # auto-reserves files on first edit by this agent.
-set -euo pipefail
+set -uo pipefail
+trap 'exit 0' ERR
 
 # Guard: fail-open if jq is not available
 command -v jq &>/dev/null || exit 0

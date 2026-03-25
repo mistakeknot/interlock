@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Stop hook: release all reservations and clean up temp files.
-set -euo pipefail
+set -uo pipefail
+trap 'exit 0' ERR
 
 # Guard: fail-open if jq is not available
 command -v jq &>/dev/null || exit 0
