@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
-# Launcher for interlock-mcp: auto-builds if binary is missing.
-# Used as the MCP command in plugin.json so `claude plugins install`
-# works without a postInstall hook.
+# Launcher for interlock-mcp: probes known binary paths before falling back to go build.
+# Probe order: cache-local → source-tree (dev) → ~/.local/bin → go build.
+# Sidesteps envs where `go` is missing from the MCP subprocess PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BINARY="${SCRIPT_DIR}/interlock-mcp"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BINARY="${SCRIPT_DIR}/interlock-mcp"
 
-if [[ ! -x "$BINARY" ]]; then
-    # Check Go is available
-    if ! command -v go &>/dev/null; then
-        echo '{"error":"go not found — cannot build interlock-mcp. Install Go 1.23+ and restart."}' >&2
-        exit 1
+for candidate in \
+    "$BINARY" \
+    "/home/mk/projects/Sylveste/interverse/interlock/bin/interlock-mcp" \
+    "${HOME}/.local/bin/interlock-mcp"
+do
+    if [[ -x "$candidate" ]]; then
+        exec "$candidate" "$@"
     fi
-    # Auto-build on first run
-    cd "$PROJECT_ROOT"
-    go build -o "$BINARY" ./cmd/interlock-mcp/ 2>&1 >&2
-fi
+done
 
+# Fallthrough: attempt build if toolchain available
+if ! command -v go &>/dev/null; then
+    echo '{"error":"go not found — cannot build interlock-mcp. Install Go 1.23+ and restart."}' >&2
+    exit 1
+fi
+cd "$PROJECT_ROOT"
+go build -o "$BINARY" ./cmd/interlock-mcp/ 2>&1 >&2
 exec "$BINARY" "$@"
