@@ -23,13 +23,31 @@ SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null) || S
 # don't contend on .git/index.lock. The index is initialized from HEAD so
 # the session sees the current repo state. Commits are serialized separately
 # via flock in the pre-commit hook.
+#
+# We install a git() shell function (not a global export) so the per-session
+# index applies only when cwd is inside the project root. A global export of
+# GIT_INDEX_FILE would leak into git operations on sibling repos (e.g.
+# `ic publish` shelling out to `git -C marketplace`), which corrupts their
+# state by reading the wrong index against the wrong tree.
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
 if [[ -n "$GIT_ROOT" && -n "${CLAUDE_ENV_FILE:-}" ]]; then
     SESSION_INDEX="${GIT_ROOT}/.git/index-${SESSION_ID}"
-    echo "export GIT_INDEX_FILE=${SESSION_INDEX}" >> "$CLAUDE_ENV_FILE"
-    # Initialize the session index from HEAD if it doesn't exist yet
+    cat >> "$CLAUDE_ENV_FILE" <<EOF
+git() {
+  local _cwd
+  _cwd=\$(pwd -P)
+  if [[ "\$_cwd" == "${GIT_ROOT}" || "\$_cwd" == "${GIT_ROOT}"/* ]]; then
+    GIT_INDEX_FILE="${SESSION_INDEX}" command git "\$@"
+  else
+    env -u GIT_INDEX_FILE command git "\$@"
+  fi
+}
+export -f git 2>/dev/null || true
+EOF
+    # Initialize the session index from HEAD if it doesn't exist yet.
+    # Use `command git` to bypass any wrapper that might already exist.
     if [[ ! -f "$SESSION_INDEX" ]]; then
-        GIT_INDEX_FILE="$SESSION_INDEX" git read-tree HEAD 2>/dev/null || true
+        GIT_INDEX_FILE="$SESSION_INDEX" command git read-tree HEAD 2>/dev/null || true
     fi
 fi
 

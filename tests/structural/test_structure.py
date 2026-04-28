@@ -1,4 +1,5 @@
 """Structural tests for interlock plugin."""
+
 import json
 import os
 import re
@@ -28,10 +29,20 @@ class TestPluginManifest:
 
 
 class TestDirectoryStructure:
-    @pytest.mark.parametrize("dirname", [
-        ".claude-plugin", "cmd", "internal", "hooks", "scripts",
-        "commands", "skills", "tests", "bin",
-    ])
+    @pytest.mark.parametrize(
+        "dirname",
+        [
+            ".claude-plugin",
+            "cmd",
+            "internal",
+            "hooks",
+            "scripts",
+            "commands",
+            "skills",
+            "tests",
+            "bin",
+        ],
+    )
     def test_required_directory(self, project_root, dirname):
         assert (project_root / dirname).is_dir()
 
@@ -50,22 +61,35 @@ class TestDirectoryStructure:
 
 
 class TestMCPTools:
-    EXPECTED_TOOLS = sorted([
-        # Reservation tools
-        "reserve_files", "release_files", "release_all",
-        "check_conflicts", "my_reservations",
-        # Messaging tools
-        "send_message", "fetch_inbox", "broadcast_message",
-        "list_topic_messages",
-        # Agent / window identity tools
-        "list_agents", "list_window_identities", "rename_window",
-        "expire_window",
-        # Release negotiation tools
-        "request_release", "negotiate_release", "respond_to_release",
-        "force_release_negotiation", "fetch_stale_acks",
-        # Contact policy tools
-        "get_contact_policy", "set_contact_policy",
-    ])
+    EXPECTED_TOOLS = sorted(
+        [
+            # Reservation tools
+            "reserve_files",
+            "release_files",
+            "release_all",
+            "check_conflicts",
+            "my_reservations",
+            # Messaging tools
+            "send_message",
+            "fetch_inbox",
+            "broadcast_message",
+            "list_topic_messages",
+            # Agent / window identity tools
+            "list_agents",
+            "list_window_identities",
+            "rename_window",
+            "expire_window",
+            # Release negotiation tools
+            "request_release",
+            "negotiate_release",
+            "respond_to_release",
+            "force_release_negotiation",
+            "fetch_stale_acks",
+            # Contact policy tools
+            "get_contact_policy",
+            "set_contact_policy",
+        ]
+    )
 
     def test_tool_count(self, project_root):
         names = self._find_tool_names(project_root)
@@ -84,7 +108,9 @@ class TestMCPTools:
             # Every NewTool should have WithDescription
             tool_count = content.count("mcp.NewTool(")
             desc_count = content.count("mcp.WithDescription(")
-            assert desc_count >= tool_count, f"{f.name}: {tool_count} tools but only {desc_count} descriptions"
+            assert (
+                desc_count >= tool_count
+            ), f"{f.name}: {tool_count} tools but only {desc_count} descriptions"
 
     def _find_tool_names(self, project_root):
         tools_dir = project_root / "internal" / "tools"
@@ -116,25 +142,44 @@ class TestHooks:
             data = json.load(f)
         assert data["hooks"]["SessionStart"][0]["hooks"][0].get("async") is True
 
-    @pytest.mark.parametrize("script", [
-        "hooks/lib.sh", "hooks/session-start.sh", "hooks/pre-edit.sh", "hooks/stop.sh",
-        "scripts/interlock-register.sh", "scripts/interlock-check.sh",
-        "scripts/interlock-cleanup.sh", "scripts/interlock-signal.sh",
-        "scripts/interlock-precommit-hook", "scripts/interlock-postcommit-hook",
-        "scripts/interlock-install-hooks",
-    ])
+    @pytest.mark.parametrize(
+        "script",
+        [
+            "hooks/lib.sh",
+            "hooks/session-start.sh",
+            "hooks/pre-edit.sh",
+            "hooks/stop.sh",
+            "scripts/interlock-register.sh",
+            "scripts/interlock-check.sh",
+            "scripts/interlock-cleanup.sh",
+            "scripts/interlock-signal.sh",
+            "scripts/interlock-precommit-hook",
+            "scripts/interlock-postcommit-hook",
+            "scripts/interlock-install-hooks",
+        ],
+    )
     def test_script_syntax(self, project_root, script):
         path = project_root / script
         assert path.is_file(), f"Missing: {script}"
         result = subprocess.run(["bash", "-n", str(path)], capture_output=True)
-        assert result.returncode == 0, f"{script} syntax error: {result.stderr.decode()}"
+        assert (
+            result.returncode == 0
+        ), f"{script} syntax error: {result.stderr.decode()}"
 
-    @pytest.mark.parametrize("script", [
-        "hooks/session-start.sh", "hooks/pre-edit.sh", "hooks/stop.sh",
-        "scripts/interlock-register.sh", "scripts/interlock-check.sh",
-        "scripts/interlock-cleanup.sh", "scripts/interlock-signal.sh",
-        "scripts/interlock-precommit-hook", "scripts/interlock-postcommit-hook",
-    ])
+    @pytest.mark.parametrize(
+        "script",
+        [
+            "hooks/session-start.sh",
+            "hooks/pre-edit.sh",
+            "hooks/stop.sh",
+            "scripts/interlock-register.sh",
+            "scripts/interlock-check.sh",
+            "scripts/interlock-cleanup.sh",
+            "scripts/interlock-signal.sh",
+            "scripts/interlock-precommit-hook",
+            "scripts/interlock-postcommit-hook",
+        ],
+    )
     def test_script_executable(self, project_root, script):
         assert os.access(project_root / script, os.X_OK), f"{script} not executable"
 
@@ -145,7 +190,7 @@ class TestHooks:
 
     def test_hooks_exit_zero(self, project_root):
         for name in ["session-start.sh", "pre-edit.sh", "stop.sh"]:
-            lines = (project_root / "hooks" / name).read_text().strip().split('\n')
+            lines = (project_root / "hooks" / name).read_text().strip().split("\n")
             assert lines[-1].strip() == "exit 0"
 
     def test_session_start_checks_join(self, project_root):
@@ -185,7 +230,7 @@ class TestSkills:
 
     @pytest.mark.parametrize("skill", ["coordination-protocol", "conflict-recovery"])
     def test_skill_under_100_lines(self, project_root, skill):
-        lines = (project_root / "skills" / skill / "SKILL.md").read_text().count('\n')
+        lines = (project_root / "skills" / skill / "SKILL.md").read_text().count("\n")
         assert lines < 100, f"{skill} has {lines} lines"
 
     @pytest.mark.parametrize("skill", ["coordination-protocol", "conflict-recovery"])
@@ -196,10 +241,22 @@ class TestSkills:
         assert "description:" in content
 
     def test_coordination_references_all_tools(self, project_root):
-        content = (project_root / "skills" / "coordination-protocol" / "SKILL.md").read_text()
-        for tool in ["reserve_files", "release_files", "release_all", "check_conflicts",
-                      "my_reservations", "send_message", "fetch_inbox", "list_agents",
-                      "request_release", "negotiate_release", "respond_to_release"]:
+        content = (
+            project_root / "skills" / "coordination-protocol" / "SKILL.md"
+        ).read_text()
+        for tool in [
+            "reserve_files",
+            "release_files",
+            "release_all",
+            "check_conflicts",
+            "my_reservations",
+            "send_message",
+            "fetch_inbox",
+            "list_agents",
+            "request_release",
+            "negotiate_release",
+            "respond_to_release",
+        ]:
             assert tool in content, f"Missing tool reference: {tool}"
 
 
@@ -272,7 +329,7 @@ class TestMandatoryReservations:
 class TestMultiSessionCoordination:
     """Tests for Phase 1 multi-session git safety features."""
 
-    def test_session_start_exports_git_index_file(self, project_root):
+    def test_session_start_installs_git_index_isolation(self, project_root):
         content = (project_root / "hooks" / "session-start.sh").read_text()
         assert "GIT_INDEX_FILE" in content
         assert "git read-tree HEAD" in content
@@ -280,6 +337,18 @@ class TestMultiSessionCoordination:
     def test_session_start_uses_session_id_for_index(self, project_root):
         content = (project_root / "hooks" / "session-start.sh").read_text()
         assert "index-${SESSION_ID}" in content
+
+    def test_session_start_does_not_export_git_index_file_globally(self, project_root):
+        # Regression test for issue #2: a global `export GIT_INDEX_FILE=...`
+        # leaks into git operations on sibling repos (e.g. ic publish shelling
+        # out to git -C marketplace), which corrupts their state. The hook
+        # must scope GIT_INDEX_FILE via a shell function, not a bare export.
+        content = (project_root / "hooks" / "session-start.sh").read_text()
+        assert "export GIT_INDEX_FILE=" not in content
+        assert '"export GIT_INDEX_FILE=' not in content
+        assert "git()" in content
+        assert "command git" in content
+        assert "env -u GIT_INDEX_FILE" in content
 
     def test_precommit_has_commit_lock(self, project_root):
         content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
@@ -303,7 +372,9 @@ class TestMultiSessionCoordination:
         assert (project_root / "scripts" / "interlock-postcommit-hook").is_file()
 
     def test_postcommit_hook_executable(self, project_root):
-        assert os.access(project_root / "scripts" / "interlock-postcommit-hook", os.X_OK)
+        assert os.access(
+            project_root / "scripts" / "interlock-postcommit-hook", os.X_OK
+        )
 
     def test_postcommit_has_marker(self, project_root):
         content = (project_root / "scripts" / "interlock-postcommit-hook").read_text()
@@ -403,7 +474,10 @@ class TestNegotiationProtocol:
     def test_pre_edit_has_negotiation_throttle(self, project_root):
         """Pre-edit hook must throttle release-request inbox checks."""
         content = (project_root / "hooks" / "pre-edit.sh").read_text()
-        assert "negotiation_check_path" in content or "interlock-negotiate-checked" in content
+        assert (
+            "negotiation_check_path" in content
+            or "interlock-negotiate-checked" in content
+        )
 
     def test_lib_has_negotiation_check_path(self, project_root):
         """lib.sh should have the negotiation_check_path helper."""
@@ -433,10 +507,15 @@ class TestNegotiationProtocol:
             if "func (c *Client) CheckExpiredNegotiations" in line:
                 in_func = True
             elif in_func:
-                if line.startswith("func ") or (line.startswith("}") and not line.startswith("})")):
+                if line.startswith("func ") or (
+                    line.startswith("}") and not line.startswith("})")
+                ):
                     break
-                assert "ReleaseByPattern" not in line, \
-                    "CheckExpiredNegotiations must not call ReleaseByPattern (advisory-only)"
+                assert (
+                    "ReleaseByPattern" not in line
+                ), "CheckExpiredNegotiations must not call ReleaseByPattern (advisory-only)"
                 if "advisory" in line.lower() or "Advisory" in line:
                     found_advisory_comment = True
-        assert found_advisory_comment, "CheckExpiredNegotiations should have advisory comment"
+        assert (
+            found_advisory_comment
+        ), "CheckExpiredNegotiations should have advisory comment"
