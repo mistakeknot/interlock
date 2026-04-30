@@ -350,6 +350,16 @@ class TestMultiSessionCoordination:
         assert "command git" in content
         assert "env -u GIT_INDEX_FILE" in content
 
+    def test_session_start_handles_git_C_flag(self, project_root):
+        # Follow-up regression: the v0.2.12 fix only checked the shell's cwd,
+        # which doesn't reflect `git -C /other/repo` (cwd doesn't change).
+        # The function must detect repo-redirection flags and skip applying
+        # the per-session index in that case.
+        content = (project_root / "hooks" / "session-start.sh").read_text()
+        assert "-C" in content
+        assert "--git-dir" in content
+        assert "--work-tree" in content
+
     def test_precommit_has_commit_lock(self, project_root):
         content = (project_root / "scripts" / "interlock-precommit-hook").read_text()
         assert "commit.lock" in content

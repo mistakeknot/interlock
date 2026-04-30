@@ -34,6 +34,19 @@ if [[ -n "$GIT_ROOT" && -n "${CLAUDE_ENV_FILE:-}" ]]; then
     SESSION_INDEX="${GIT_ROOT}/.git/index-${SESSION_ID}"
     cat >> "$CLAUDE_ENV_FILE" <<EOF
 git() {
+  # If any flag explicitly redirects git's working tree or git dir, we are
+  # targeting a different repo than the project root — never apply our
+  # per-session GIT_INDEX_FILE. This catches \`git -C /other/repo …\` which
+  # the cwd-only check missed.
+  local _arg
+  for _arg in "\$@"; do
+    case "\$_arg" in
+      -C|--git-dir|--git-dir=*|--work-tree|--work-tree=*)
+        env -u GIT_INDEX_FILE command git "\$@"
+        return \$?
+        ;;
+    esac
+  done
   local _cwd
   _cwd=\$(pwd -P)
   if [[ "\$_cwd" == "${GIT_ROOT}" || "\$_cwd" == "${GIT_ROOT}"/* ]]; then
