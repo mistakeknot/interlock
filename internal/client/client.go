@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -78,15 +79,65 @@ func (c *Client) AgentName() string { return c.agentName }
 
 // Reservation represents an active file reservation.
 type Reservation struct {
-	ID          string `json:"id"`
-	AgentID     string `json:"agent_id"`
-	Project     string `json:"project"`
-	PathPattern string `json:"path_pattern"`
-	Exclusive   bool   `json:"exclusive"`
-	Reason      string `json:"reason"`
-	ExpiresAt   string `json:"expires_at"`
-	IsActive    bool   `json:"is_active"`
+	ID          string  `json:"id"`
+	AgentID     string  `json:"agent_id"`
+	Project     string  `json:"project"`
+	PathPattern string  `json:"path_pattern"`
+	Exclusive   bool    `json:"exclusive"`
+	Reason      string  `json:"reason"`
+	CreatedAt   string  `json:"created_at,omitempty"`
+	ExpiresAt   string  `json:"expires_at"`
+	ReleasedAt  *string `json:"released_at,omitempty"`
+	IsActive    bool    `json:"is_active"`
 }
+
+// ReservationCorrelation is the compact bead/thread correlation encoded in a
+// reservation reason until intermute exposes first-class reservation metadata.
+type ReservationCorrelation struct {
+	BeadID       string `json:"bead_id,omitempty"`
+	ActiveBeadID string `json:"active_bead_id,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
+	Confidence   string `json:"confidence"`
+}
+
+// CollisionSummary is an agent-readable collision card collection for a repo
+// and one or more path patterns.
+type CollisionSummary struct {
+	Project         string          `json:"project"`
+	Patterns        []string        `json:"patterns"`
+	RequestedBeadID string          `json:"requested_bead_id,omitempty"`
+	Cards           []CollisionCard `json:"cards"`
+	Conflicts       []CollisionCard `json:"conflicts"`
+	Clear           []string        `json:"clear"`
+}
+
+// CollisionCard describes a single relevant reservation for a requested path.
+type CollisionCard struct {
+	ReservationID   string `json:"reservation_id"`
+	AgentID         string `json:"agent_id"`
+	HeldBy          string `json:"held_by"`
+	Project         string `json:"project"`
+	RequestedPath   string `json:"requested_path"`
+	Pattern         string `json:"pattern"`
+	PathPattern     string `json:"path_pattern"`
+	Reason          string `json:"reason,omitempty"`
+	ExpiresAt       string `json:"expires_at,omitempty"`
+	State           string `json:"state"`
+	Confidence      string `json:"confidence"`
+	BeadID          string `json:"bead_id,omitempty"`
+	ActiveBeadID    string `json:"active_bead_id,omitempty"`
+	ThreadID        string `json:"thread_id,omitempty"`
+	SuggestedAction string `json:"suggested_action"`
+	HardBlocker     bool   `json:"hard_blocker"`
+}
+
+var (
+	beadIDPattern     = `[A-Za-z][A-Za-z0-9_-]*-[A-Za-z0-9]+(?:\.[0-9]+)*`
+	activeBeadIDRegex = regexp.MustCompile(`(?:^|[\s\[,;])active_bead_id=(` + beadIDPattern + `)(?:$|[\s\],;])`)
+	beadIDRegex       = regexp.MustCompile(`(?:^|[\s\[,;])bead_id=(` + beadIDPattern + `)(?:$|[\s\],;])`)
+	beadColonRegex    = regexp.MustCompile(`(?:^|[\s\[,;])bead:(` + beadIDPattern + `)(?:$|[\s\],;])`)
+	threadIDRegex     = regexp.MustCompile(`(?:^|[\s\[,;])thread_id=([^\s\],;]+)(?:$|[\s\],;])`)
+)
 
 // ConflictDetail describes a single conflict.
 type ConflictDetail struct {
@@ -167,12 +218,20 @@ func (e *ConflictError) Error() string {
 
 // CreateReservation reserves a file pattern.
 func (c *Client) CreateReservation(ctx context.Context, pattern, reason string, ttlMinutes int, exclusive bool) (*Reservation, error) {
+	return c.CreateReservationWithCorrelation(ctx, pattern, reason, ttlMinutes, exclusive, ReservationCorrelation{})
+}
+
+// CreateReservationWithCorrelation reserves a file pattern and encodes compact
+// bead/thread correlation in the reason field. This keeps interlock compatible
+// with current intermute reservation schema while giving agents a stable
+// bead-aware convention to parse in collision summaries.
+func (c *Client) CreateReservationWithCorrelation(ctx context.Context, pattern, reason string, ttlMinutes int, exclusive bool, correlation ReservationCorrelation) (*Reservation, error) {
 	body := map[string]any{
 		"agent_id":     c.agentID,
 		"project":      c.project,
 		"path_pattern": pattern,
 		"exclusive":    exclusive,
-		"reason":       reason,
+		"reason":       FormatReservationReason(reason, correlation),
 	}
 	if ttlMinutes > 0 {
 		body["ttl_minutes"] = ttlMinutes
@@ -205,8 +264,269 @@ func (c *Client) ListReservations(ctx context.Context, filters map[string]string
 	return result.Reservations, nil
 }
 
+// FormatReservationReason appends compact bead/thread correlation to a reason
+// string using an explicit key=value convention. Current intermute reservations
+// do not have a metadata column, so this is the v0 merge-safe representation.
+func FormatReservationReason(reason string, correlation ReservationCorrelation) string {
+	reason = strings.TrimSpace(reason)
+	parts := make([]string, 0, 3)
+	if correlation.ActiveBeadID != "" && !strings.Contains(reason, "active_bead_id="+correlation.ActiveBeadID) {
+		parts = append(parts, "active_bead_id="+correlation.ActiveBeadID)
+	}
+	if correlation.BeadID != "" && !strings.Contains(reason, "bead_id="+correlation.BeadID) {
+		parts = append(parts, "bead_id="+correlation.BeadID)
+	}
+	if correlation.ThreadID != "" && !strings.Contains(reason, "thread_id="+correlation.ThreadID) {
+		parts = append(parts, "thread_id="+correlation.ThreadID)
+	}
+	if len(parts) == 0 {
+		return reason
+	}
+	metadata := strings.Join(parts, " ")
+	if reason == "" {
+		return metadata
+	}
+	return reason + " [" + metadata + "]"
+}
+
+// ExtractReservationCorrelation parses the v0 reason-encoded bead/thread
+// convention. Unknown or ambiguous evidence is explicit instead of guessed.
+func ExtractReservationCorrelation(reason string) ReservationCorrelation {
+	active := uniqueRegexMatches(activeBeadIDRegex, reason)
+	bead := uniqueRegexMatches(beadIDRegex, reason)
+	if len(bead) == 0 {
+		bead = uniqueRegexMatches(beadColonRegex, reason)
+	}
+	threads := uniqueRegexMatches(threadIDRegex, reason)
+
+	corr := ReservationCorrelation{Confidence: "unknown"}
+	ambiguous := len(active) > 1 || len(bead) > 1 || len(threads) > 1
+	if len(active) == 1 {
+		corr.ActiveBeadID = active[0]
+	}
+	if len(bead) == 1 {
+		corr.BeadID = bead[0]
+	}
+	if len(threads) == 1 {
+		corr.ThreadID = threads[0]
+	}
+	if ambiguous {
+		corr.ActiveBeadID = ""
+		corr.BeadID = ""
+		corr.ThreadID = ""
+		corr.Confidence = "ambiguous"
+		return corr
+	}
+	if corr.ActiveBeadID != "" || corr.BeadID != "" || corr.ThreadID != "" {
+		corr.Confidence = "reported"
+	}
+	return corr
+}
+
+// CollisionSummary builds agent-readable collision cards for the configured
+// project and requested path patterns.
+func (c *Client) CollisionSummary(ctx context.Context, patterns []string, requestedBeadID string) (*CollisionSummary, error) {
+	reservations, err := c.ListReservations(ctx, map[string]string{"project": c.project})
+	if err != nil {
+		return nil, err
+	}
+	reservationsByID := make(map[string]Reservation, len(reservations))
+	for _, reservation := range reservations {
+		reservationsByID[reservation.ID] = reservation
+	}
+	summary := &CollisionSummary{
+		Project:         c.project,
+		Patterns:        append([]string(nil), patterns...),
+		RequestedBeadID: strings.TrimSpace(requestedBeadID),
+		Cards:           make([]CollisionCard, 0),
+		Conflicts:       make([]CollisionCard, 0),
+		Clear:           make([]string, 0),
+	}
+	for _, pattern := range patterns {
+		patternHasHardBlocker := false
+		patternHasCard := false
+		seen := make(map[string]struct{})
+
+		serverConflicts, supported, err := c.checkConflictsEndpoint(ctx, pattern)
+		if err != nil {
+			return nil, err
+		}
+		if !supported {
+			serverConflicts = nil
+		}
+		for _, conflict := range serverConflicts {
+			if conflict.AgentID == c.agentID {
+				continue
+			}
+			card := conflictCollisionCard(conflict, pattern, c.project, summary.RequestedBeadID)
+			if reservation, ok := reservationsByID[conflict.ReservationID]; ok {
+				card = reservationCollisionCard(reservation, pattern, summary.RequestedBeadID)
+				if conflict.HeldBy != "" {
+					card.HeldBy = conflict.HeldBy
+				}
+			}
+			if card.ReservationID != "" {
+				seen[card.ReservationID] = struct{}{}
+			}
+			patternHasCard = true
+			if card.HardBlocker {
+				patternHasHardBlocker = true
+				summary.Conflicts = append(summary.Conflicts, card)
+			}
+			summary.Cards = append(summary.Cards, card)
+		}
+
+		// Add non-hard-blocking context from listed reservations: same-bead,
+		// ambiguous, stale, or shared overlaps that the hard-conflict endpoint
+		// intentionally does not need to return.
+		for _, reservation := range reservations {
+			if reservation.AgentID == c.agentID {
+				continue
+			}
+			if _, ok := seen[reservation.ID]; ok {
+				continue
+			}
+			if !PatternsOverlap(reservation.PathPattern, pattern) {
+				continue
+			}
+			card := reservationCollisionCard(reservation, pattern, summary.RequestedBeadID)
+			// List-derived overlaps are advisory context only. Hard-blocking
+			// authority comes from CheckConflicts above, which uses intermute's
+			// server-side conflict matcher when available.
+			if card.HardBlocker {
+				card.HardBlocker = false
+				card.SuggestedAction = "coordinate_with_holder"
+			}
+			patternHasCard = true
+			summary.Cards = append(summary.Cards, card)
+		}
+		if !patternHasCard || !patternHasHardBlocker {
+			summary.Clear = append(summary.Clear, pattern)
+		}
+	}
+	return summary, nil
+}
+
+func reservationCollisionCard(reservation Reservation, requestedPattern, requestedBeadID string) CollisionCard {
+	correlation := ExtractReservationCorrelation(reservation.Reason)
+	state := reservationState(reservation.IsActive, reservation.ExpiresAt)
+	sameBead := correlationMatchesBead(correlation, requestedBeadID)
+
+	card := CollisionCard{
+		ReservationID: reservation.ID,
+		AgentID:       reservation.AgentID,
+		HeldBy:        reservation.AgentID,
+		Project:       reservation.Project,
+		RequestedPath: requestedPattern,
+		Pattern:       reservation.PathPattern,
+		PathPattern:   reservation.PathPattern,
+		Reason:        reservation.Reason,
+		ExpiresAt:     reservation.ExpiresAt,
+		State:         state,
+		Confidence:    correlation.Confidence,
+		BeadID:        correlation.BeadID,
+		ActiveBeadID:  correlation.ActiveBeadID,
+		ThreadID:      correlation.ThreadID,
+	}
+
+	applyCollisionAction(&card, reservation.Exclusive, sameBead)
+	return card
+}
+
+func conflictCollisionCard(conflict ConflictDetail, requestedPattern, project, requestedBeadID string) CollisionCard {
+	correlation := ExtractReservationCorrelation(conflict.Reason)
+	state := reservationState(true, conflict.ExpiresAt)
+	sameBead := correlationMatchesBead(correlation, requestedBeadID)
+	card := CollisionCard{
+		ReservationID: conflict.ReservationID,
+		AgentID:       conflict.AgentID,
+		HeldBy:        stringOr(conflict.HeldBy, conflict.AgentID),
+		Project:       project,
+		RequestedPath: requestedPattern,
+		Pattern:       conflict.Pattern,
+		PathPattern:   conflict.Pattern,
+		Reason:        conflict.Reason,
+		ExpiresAt:     conflict.ExpiresAt,
+		State:         state,
+		Confidence:    correlation.Confidence,
+		BeadID:        correlation.BeadID,
+		ActiveBeadID:  correlation.ActiveBeadID,
+		ThreadID:      correlation.ThreadID,
+	}
+	applyCollisionAction(&card, true, sameBead)
+	return card
+}
+
+func applyCollisionAction(card *CollisionCard, exclusive bool, sameBead bool) {
+	switch {
+	case card.State == "stale":
+		card.SuggestedAction = "wait_for_expiry_or_release"
+	case card.Confidence == "ambiguous":
+		card.SuggestedAction = "clarify_bead_before_negotiation"
+	case sameBead:
+		card.SuggestedAction = "coordinate_same_bead"
+	case exclusive:
+		card.HardBlocker = true
+		card.SuggestedAction = "negotiate_release"
+	default:
+		card.SuggestedAction = "coordinate_with_holder"
+	}
+}
+
+func correlationMatchesBead(correlation ReservationCorrelation, requestedBeadID string) bool {
+	requestedBeadID = strings.TrimSpace(requestedBeadID)
+	if requestedBeadID == "" {
+		return false
+	}
+	return correlation.ActiveBeadID == requestedBeadID || correlation.BeadID == requestedBeadID || correlation.ThreadID == requestedBeadID
+}
+
+func reservationState(isActive bool, expiresAt string) string {
+	if !isActive {
+		return "stale"
+	}
+	if expiresAt == "" {
+		return "active"
+	}
+	if expires, err := time.Parse(time.RFC3339Nano, expiresAt); err == nil && time.Now().After(expires) {
+		return "stale"
+	}
+	if expires, err := time.Parse(time.RFC3339, expiresAt); err == nil && time.Now().After(expires) {
+		return "stale"
+	}
+	return "active"
+}
+
+func uniqueRegexMatches(re *regexp.Regexp, text string) []string {
+	seen := make(map[string]struct{})
+	matches := re.FindAllStringSubmatch(text, -1)
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 || match[1] == "" {
+			continue
+		}
+		if _, ok := seen[match[1]]; ok {
+			continue
+		}
+		seen[match[1]] = struct{}{}
+		out = append(out, match[1])
+	}
+	return out
+}
+
 // CheckConflicts checks if patterns conflict with existing reservations.
 func (c *Client) CheckConflicts(ctx context.Context, pattern string) ([]ConflictDetail, error) {
+	conflicts, supported, err := c.checkConflictsEndpoint(ctx, pattern)
+	if err != nil {
+		return nil, err
+	}
+	if !supported {
+		return c.checkConflictsFallback(ctx, pattern)
+	}
+	return conflicts, nil
+}
+
+func (c *Client) checkConflictsEndpoint(ctx context.Context, pattern string) ([]ConflictDetail, bool, error) {
 	q := url.Values{}
 	q.Set("project", c.project)
 	q.Set("pattern", pattern)
@@ -216,13 +536,12 @@ func (c *Client) CheckConflicts(ctx context.Context, pattern string) ([]Conflict
 		Conflicts []ConflictDetail `json:"conflicts"`
 	}
 	if err := c.doJSON(ctx, "GET", path, nil, &result); err != nil {
-		// Fallback: if endpoint not found, use list + client-side filter
 		if isNotFound(err) {
-			return c.checkConflictsFallback(ctx, pattern)
+			return nil, false, nil
 		}
-		return nil, err
+		return nil, true, err
 	}
-	return result.Conflicts, nil
+	return result.Conflicts, true, nil
 }
 
 // RegisterAgent registers this agent with intermute.

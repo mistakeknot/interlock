@@ -40,6 +40,28 @@ Check who's working on what:
 /interlock:status
 ```
 
+Reserve files with bead correlation:
+
+```
+reserve_files(
+  patterns=["internal/client/*"],
+  reason="Wave 3 collision-card edit",
+  active_bead_id="sylveste-kgfi.3"
+)
+```
+
+Check conflicts with bead-aware collision cards:
+
+```
+check_conflicts(
+  patterns=["internal/client/*"],
+  active_bead_id="sylveste-kgfi.3"
+)
+```
+
+The v0 bead metadata convention and collision-card response shape are documented in
+[`docs/bead-aware-reservations.md`](docs/bead-aware-reservations.md).
+
 Leave and release all reservations:
 
 ```

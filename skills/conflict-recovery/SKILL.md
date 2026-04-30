@@ -17,10 +17,15 @@ When you try to reserve or edit a file held by another agent, you hit a conflict
 ## Recovery Ladder
 
 ### Step 1: Check Status
-Call `check_conflicts` or run `/interlock:status` to see:
+Call `check_conflicts` to see bead-aware collision cards:
 - Who holds the reservation (agent name + ID)
 - Why (the reason string)
+- Which bead/thread is reported, when available (`active_bead_id`, `bead_id`, `thread_id`)
+- Whether the card is an active blocker, same-bead coordination, ambiguous evidence, or stale evidence
+- The suggested next action (`coordinate_same_bead`, `negotiate_release`, `clarify_bead_before_negotiation`, etc.)
 - When it expires (expires_at timestamp)
+
+Run `/interlock:status` for a broader coordination snapshot; it may not include every collision-card field.
 
 ### Step 2: Work Elsewhere
 If other unreserved files need attention, work on those first. The reservation may expire or be released while you work. Call `my_reservations` to see what you already hold.

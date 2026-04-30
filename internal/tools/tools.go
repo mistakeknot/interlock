@@ -69,6 +69,15 @@ func reserveFiles(c *client.Client) server.ServerTool {
 				mcp.Description("Why you're reserving these files"),
 				mcp.Required(),
 			),
+			mcp.WithString("active_bead_id",
+				mcp.Description("Optional Beads ID for the currently active work item; encoded into reservation reason metadata"),
+			),
+			mcp.WithString("bead_id",
+				mcp.Description("Optional canonical Beads ID if different from active_bead_id; encoded into reservation reason metadata"),
+			),
+			mcp.WithString("thread_id",
+				mcp.Description("Optional message/thread correlation handle; bead IDs are recommended when relevant"),
+			),
 			mcp.WithNumber("ttl_minutes",
 				mcp.Description("Reservation duration in minutes (default: 15)"),
 			),
@@ -82,6 +91,11 @@ func reserveFiles(c *client.Client) server.ServerTool {
 			reason, _ := args["reason"].(string)
 			ttl := intOr(args["ttl_minutes"], 15)
 			exclusive := boolOr(args["exclusive"], true)
+			correlation := client.ReservationCorrelation{
+				ActiveBeadID: stringOr(args["active_bead_id"], ""),
+				BeadID:       stringOr(args["bead_id"], ""),
+				ThreadID:     stringOr(args["thread_id"], ""),
+			}
 
 			if len(patterns) == 0 {
 				return mcputil.ValidationError("patterns is required")
@@ -98,7 +112,7 @@ func reserveFiles(c *client.Client) server.ServerTool {
 			}
 			var res result
 			for _, p := range patterns {
-				r, err := c.CreateReservation(ctx, p, reason, ttl, exclusive)
+				r, err := c.CreateReservationWithCorrelation(ctx, p, reason, ttl, exclusive, correlation)
 				if err != nil {
 					te := toolerror.Wrap(err)
 					var ce *client.ConflictError
@@ -190,11 +204,17 @@ func releaseAll(c *client.Client) server.ServerTool {
 func checkConflicts(c *client.Client) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("check_conflicts",
-			mcp.WithDescription("Check if file patterns would conflict with existing reservations (dry run, does not create reservations)."),
+			mcp.WithDescription("Check if file patterns would conflict with existing reservations (dry run, does not create reservations). Returns bead-aware collision cards when reservations include bead metadata."),
 			mcp.WithArray("patterns",
 				mcp.Description("Glob patterns to check for conflicts"),
 				mcp.Required(),
 				mcp.WithStringItems(),
+			),
+			mcp.WithString("active_bead_id",
+				mcp.Description("Optional active Beads ID for this requested edit; same-bead reservations are surfaced as coordination, not hard blockers"),
+			),
+			mcp.WithString("bead_id",
+				mcp.Description("Alias for active_bead_id when checking a canonical Beads issue"),
 			),
 		),
 		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -204,27 +224,12 @@ func checkConflicts(c *client.Client) server.ServerTool {
 				return mcputil.ValidationError("patterns is required")
 			}
 
-			type result struct {
-				Conflicts []any    `json:"conflicts"`
-				Clear     []string `json:"clear"`
+			beadID := stringOr(args["active_bead_id"], stringOr(args["bead_id"], ""))
+			summary, err := c.CollisionSummary(ctx, patterns, beadID)
+			if err != nil {
+				return toToolError(err), nil
 			}
-			var res result
-			res.Conflicts = make([]any, 0)
-			res.Clear = make([]string, 0)
-			for _, p := range patterns {
-				conflicts, err := c.CheckConflicts(ctx, p)
-				if err != nil {
-					return toToolError(err), nil
-				}
-				if len(conflicts) > 0 {
-					for _, cd := range conflicts {
-						res.Conflicts = append(res.Conflicts, cd)
-					}
-				} else {
-					res.Clear = append(res.Clear, p)
-				}
-			}
-			return jsonResult(res)
+			return jsonResult(summary)
 		},
 	}
 }
