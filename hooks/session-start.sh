@@ -42,7 +42,7 @@ git() {
   for _arg in "\$@"; do
     case "\$_arg" in
       -C|--git-dir|--git-dir=*|--work-tree|--work-tree=*)
-        env -u GIT_INDEX_FILE command git "\$@"
+        ( unset GIT_INDEX_FILE; command git "\$@" )
         return \$?
         ;;
     esac
@@ -50,9 +50,22 @@ git() {
   local _cwd
   _cwd=\$(pwd -P)
   if [[ "\$_cwd" == "${GIT_ROOT}" || "\$_cwd" == "${GIT_ROOT}"/* ]]; then
+    # Walk from cwd up to GIT_ROOT; if any intermediate directory carries
+    # its own .git, we are inside a nested repo (not a submodule of the
+    # project root). Applying the project's session index there would
+    # write trees into the wrong object store and produce
+    # "fatal: unable to read <hash>" on subsequent reads.
+    local _check="\$_cwd"
+    while [[ "\$_check" != "${GIT_ROOT}" && "\$_check" != "/" ]]; do
+      if [[ -e "\$_check/.git" ]]; then
+        ( unset GIT_INDEX_FILE; command git "\$@" )
+        return \$?
+      fi
+      _check=\$(dirname "\$_check")
+    done
     GIT_INDEX_FILE="${SESSION_INDEX}" command git "\$@"
   else
-    env -u GIT_INDEX_FILE command git "\$@"
+    ( unset GIT_INDEX_FILE; command git "\$@" )
   fi
 }
 export -f git 2>/dev/null || true

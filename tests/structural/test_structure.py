@@ -348,7 +348,28 @@ class TestMultiSessionCoordination:
         assert '"export GIT_INDEX_FILE=' not in content
         assert "git()" in content
         assert "command git" in content
-        assert "env -u GIT_INDEX_FILE" in content
+        # Either subshell-unset or env-unset is acceptable for stripping
+        # GIT_INDEX_FILE before delegating outside the project root. The
+        # subshell form is preferred because `env -u VAR command <builtin>`
+        # fails — `env` cannot exec shell builtins like `command`.
+        assert (
+            "unset GIT_INDEX_FILE" in content
+            or "env -u GIT_INDEX_FILE" in content
+        )
+
+    def test_session_start_skips_index_isolation_in_nested_repos(self, project_root):
+        # Regression test: when cwd is inside a nested git repo (e.g.
+        # interverse/lattice/ which has its own .git/ separate from the
+        # project root), the wrapper must NOT apply the project's session
+        # index. Doing so would write trees into the wrong object store and
+        # produce "fatal: unable to read <hash>" on every subsequent read.
+        content = (project_root / "hooks" / "session-start.sh").read_text()
+        # The walk-up nested-repo detection looks for .git anywhere between
+        # cwd and GIT_ROOT.
+        assert "_check" in content
+        assert "/.git" in content
+        # And it must short-circuit to a non-overridden git when found.
+        assert "while" in content
 
     def test_session_start_handles_git_C_flag(self, project_root):
         # Follow-up regression: the v0.2.12 fix only checked the shell's cwd,
