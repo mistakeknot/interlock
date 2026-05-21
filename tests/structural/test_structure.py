@@ -132,10 +132,10 @@ class TestHooks:
         assert "PreToolUse" in data["hooks"]
         assert "Stop" in data["hooks"]
 
-    def test_pretooluse_matches_edit(self, project_root):
+    def test_pretooluse_matches_file_mutations(self, project_root):
         with open(project_root / "hooks" / "hooks.json") as f:
             data = json.load(f)
-        assert data["hooks"]["PreToolUse"][0]["matcher"] == "Edit"
+        assert data["hooks"]["PreToolUse"][0]["matcher"] == "Edit|Write|MultiEdit"
 
     def test_sessionstart_is_async(self, project_root):
         with open(project_root / "hooks" / "hooks.json") as f:
