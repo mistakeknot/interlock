@@ -21,9 +21,10 @@ STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null) ||
 
 SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 
-# Clean up per-session git index file (prevents accumulation)
-if [[ -n "${GIT_INDEX_FILE:-}" && -f "${GIT_INDEX_FILE}" ]]; then
-    rm -f "${GIT_INDEX_FILE}" 2>/dev/null || true
+# Session worktrees are intentionally retained by default. They may contain
+# uncommitted work or detached commits that still need to be pushed/merged.
+if [[ -n "${INTERLOCK_SESSION_WORKTREE:-}" ]]; then
+    echo "INTERLOCK: session worktree retained at ${INTERLOCK_SESSION_WORKTREE}" >&2
 fi
 
 # Delegate cleanup to helper script (best effort)

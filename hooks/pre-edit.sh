@@ -19,8 +19,40 @@ source "${SCRIPT_DIR}/lib.sh"
 # Extract file path from Edit tool input
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || FILE_PATH=""
 [[ -n "$FILE_PATH" ]] || exit 0
+HOOK_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null) || HOOK_CWD=""
 
 SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+
+# --- Enforce worktree use when session worktree isolation is active ---
+# Hooks cannot move Claude Code's own cwd. Instead, SessionStart creates a
+# linked worktree and exports INTERLOCK_SESSION_WORKTREE; this PreToolUse hook
+# blocks coordinated edits that still target the original checkout.
+if [[ -n "${INTERLOCK_SESSION_WORKTREE:-}" ]]; then
+    WORKTREE_ROOT=$(cd "$INTERLOCK_SESSION_WORKTREE" 2>/dev/null && pwd -P) || WORKTREE_ROOT=""
+    PROJECT_ROOT_ENV="${INTERLOCK_PROJECT_ROOT:-}"
+    if [[ -n "$WORKTREE_ROOT" ]]; then
+        case "$FILE_PATH" in
+            "$WORKTREE_ROOT"|"$WORKTREE_ROOT"/*)
+                ;;
+            /*)
+                if [[ -n "$PROJECT_ROOT_ENV" && ( "$FILE_PATH" == "$PROJECT_ROOT_ENV" || "$FILE_PATH" == "$PROJECT_ROOT_ENV"/* ) ]]; then
+                    jq -nc --arg wt "$WORKTREE_ROOT" \
+                        '{"decision":"block","reason":("INTERLOCK: session worktree isolation is active. Edit files under " + $wt + " instead of the original checkout.")}'
+                    exit 0
+                fi
+                ;;
+            *)
+                _cwd="${HOOK_CWD:-$PWD}"
+                _cwd=$(cd "$_cwd" 2>/dev/null && pwd -P) || _cwd=""
+                if [[ -n "$_cwd" && "$_cwd" != "$WORKTREE_ROOT" && "$_cwd" != "$WORKTREE_ROOT"/* ]]; then
+                    jq -nc --arg wt "$WORKTREE_ROOT" \
+                        '{"decision":"block","reason":("INTERLOCK: session worktree isolation is active. Use INTERLOCK_SESSION_WORKTREE (" + $wt + ") for relative file edits.")}'
+                    exit 0
+                fi
+                ;;
+        esac
+    fi
+fi
 
 # --- Check inbox for commit notifications (throttled) ---
 # When another session commits, the postcommit hook sends a "commit:<hash>"
@@ -109,12 +141,17 @@ fi
 
 # Make file path relative to project root
 REL_PATH="$FILE_PATH"
-PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || PROJECT_ROOT=""
+if [[ -n "${INTERLOCK_SESSION_WORKTREE:-}" ]] && git -C "$INTERLOCK_SESSION_WORKTREE" rev-parse --show-toplevel >/dev/null 2>&1; then
+    PROJECT_ROOT=$(git -C "$INTERLOCK_SESSION_WORKTREE" rev-parse --show-toplevel 2>/dev/null) || PROJECT_ROOT=""
+else
+    PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || PROJECT_ROOT=""
+fi
 if [[ -n "$PROJECT_ROOT" && "$FILE_PATH" == "$PROJECT_ROOT"* ]]; then
     REL_PATH="${FILE_PATH#$PROJECT_ROOT/}"
 fi
 
-PROJECT="${INTERMUTE_PROJECT:-$(basename "$PROJECT_ROOT" 2>/dev/null)}"
+PROJECT_ID_ROOT="${INTERLOCK_PROJECT_ROOT:-$PROJECT_ROOT}"
+PROJECT="${INTERMUTE_PROJECT:-$(basename "$PROJECT_ID_ROOT" 2>/dev/null)}"
 [[ -n "$PROJECT" ]] || exit 0
 
 # --- Check for conflicts and auto-reserve ---

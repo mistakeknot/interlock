@@ -18,62 +18,27 @@ SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null) || S
 # NOTE: CLAUDE_SESSION_ID is written by Clavain's session-start.sh (canonical writer).
 # Do NOT duplicate here — both hooks run async, creating a race condition (iv-erb1).
 
-# --- Per-session git index isolation ---
-# Each session gets its own GIT_INDEX_FILE so concurrent git-add operations
-# don't contend on .git/index.lock. The index is initialized from HEAD so
-# the session sees the current repo state. Commits are serialized separately
-# via flock in the pre-commit hook.
-#
-# We install a git() shell function (not a global export) so the per-session
-# index applies only when cwd is inside the project root. A global export of
-# GIT_INDEX_FILE would leak into git operations on sibling repos (e.g.
-# `ic publish` shelling out to `git -C marketplace`), which corrupts their
-# state by reading the wrong index against the wrong tree.
+# --- Per-session git worktree isolation ---
+# Each session gets a linked worktree instead of a synthetic git index.
+# A real worktree has its own working directory and index, so stale session
+# indexes cannot commit peer changes as phantom deletes.
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
+SESSION_WORKTREE=""
 if [[ -n "$GIT_ROOT" && -n "${CLAUDE_ENV_FILE:-}" ]]; then
-    SESSION_INDEX="${GIT_ROOT}/.git/index-${SESSION_ID}"
-    cat >> "$CLAUDE_ENV_FILE" <<EOF
-git() {
-  # If any flag explicitly redirects git's working tree or git dir, we are
-  # targeting a different repo than the project root — never apply our
-  # per-session GIT_INDEX_FILE. This catches \`git -C /other/repo …\` which
-  # the cwd-only check missed.
-  local _arg
-  for _arg in "\$@"; do
-    case "\$_arg" in
-      -C|--git-dir|--git-dir=*|--work-tree|--work-tree=*)
-        ( unset GIT_INDEX_FILE; command git "\$@" )
-        return \$?
-        ;;
-    esac
-  done
-  local _cwd
-  _cwd=\$(pwd -P)
-  if [[ "\$_cwd" == "${GIT_ROOT}" || "\$_cwd" == "${GIT_ROOT}"/* ]]; then
-    # Walk from cwd up to GIT_ROOT; if any intermediate directory carries
-    # its own .git, we are inside a nested repo (not a submodule of the
-    # project root). Applying the project's session index there would
-    # write trees into the wrong object store and produce
-    # "fatal: unable to read <hash>" on subsequent reads.
-    local _check="\$_cwd"
-    while [[ "\$_check" != "${GIT_ROOT}" && "\$_check" != "/" ]]; do
-      if [[ -e "\$_check/.git" ]]; then
-        ( unset GIT_INDEX_FILE; command git "\$@" )
-        return \$?
-      fi
-      _check=\$(dirname "\$_check")
-    done
-    GIT_INDEX_FILE="${SESSION_INDEX}" command git "\$@"
-  else
-    ( unset GIT_INDEX_FILE; command git "\$@" )
-  fi
-}
-export -f git 2>/dev/null || true
-EOF
-    # Initialize the session index from HEAD if it doesn't exist yet.
-    # Use `command git` to bypass any wrapper that might already exist.
-    if [[ ! -f "$SESSION_INDEX" ]]; then
-        GIT_INDEX_FILE="$SESSION_INDEX" command git read-tree HEAD 2>/dev/null || true
+    SESSION_WORKTREE="$(session_worktree_path "$SESSION_ID" "$GIT_ROOT")"
+    if [[ -n "$SESSION_WORKTREE" ]]; then
+        mkdir -p "$(dirname "$SESSION_WORKTREE")" 2>/dev/null || true
+        if [[ ! -e "$SESSION_WORKTREE" ]]; then
+            command git -C "$GIT_ROOT" worktree add --detach "$SESSION_WORKTREE" HEAD >/dev/null 2>&1 || true
+        fi
+
+        if command git -C "$SESSION_WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            printf 'export INTERLOCK_PROJECT_ROOT=%q\n' "$GIT_ROOT" >> "$CLAUDE_ENV_FILE"
+            printf 'export INTERLOCK_SESSION_WORKTREE=%q\n' "$SESSION_WORKTREE" >> "$CLAUDE_ENV_FILE"
+            echo "export INTERLOCK_WORKTREE_READY=1" >> "$CLAUDE_ENV_FILE"
+        else
+            SESSION_WORKTREE=""
+        fi
     fi
 fi
 
@@ -113,7 +78,7 @@ cat <<ENDJSON
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "INTERLOCK: Coordination active. Registered as '${AGENT_NAME}' (${AGENT_ID:0:8}...). ${AGENT_COUNT} agent(s) online. Per-session git index isolation enabled. File reservations enforced via git pre-commit hook. Commits serialized via lockfile."
+    "additionalContext": "INTERLOCK: Coordination active. Registered as '${AGENT_NAME}' (${AGENT_ID:0:8}...). ${AGENT_COUNT} agent(s) online. Per-session git worktree isolation enabled${SESSION_WORKTREE:+ at ${SESSION_WORKTREE}}. Edit files in INTERLOCK_SESSION_WORKTREE; the original checkout is read-only while coordination is active. File reservations enforced via git pre-commit hook. Commits serialized via lockfile."
   }
 }
 ENDJSON

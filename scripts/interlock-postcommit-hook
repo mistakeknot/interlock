@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # INTERLOCK_HOOK_MARKER
-# interlock post-commit hook — refreshes session index and broadcasts commit event.
+# interlock post-commit hook — broadcasts commit event and releases reservations.
 # Part of multi-session coordination: after a commit, other sessions need to know.
 
 # --- Graceful degradation: skip if agent not registered ---
@@ -16,13 +16,6 @@ INTERMUTE_PROJECT="${INTERMUTE_PROJECT:-$(basename "$GIT_ROOT" 2>/dev/null)}"
 
 if [[ -z "$GIT_ROOT" ]]; then
     exit 0
-fi
-
-# --- Refresh session index from HEAD ---
-# After our commit, HEAD has advanced. Refresh our per-session index so
-# subsequent git-add operations see the new state.
-if [[ -n "${GIT_INDEX_FILE:-}" ]]; then
-    git read-tree HEAD 2>/dev/null || true
 fi
 
 # --- Gather commit details ---
@@ -83,7 +76,7 @@ fi
 # --- Broadcast commit event to other agents ---
 # List other agents in this project
 AGENTS=$("${CURL_BASE[@]}" "${BASE_URL}/api/agents?project=$(printf '%s' "$INTERMUTE_PROJECT" | jq -sRr @uri)" 2>/dev/null) || {
-    # Intermute unreachable — skip broadcast, index refresh already done
+    # Intermute unreachable — skip broadcast
     exit 0
 }
 

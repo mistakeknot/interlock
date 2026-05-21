@@ -31,7 +31,7 @@ Interlock adds a thin coordination layer:
 - one Go MCP server with 9 tools,
 - bash hooks wired into Claude Code lifecycle events (including blocking edit enforcement),
 - shell commands for explicit join/leave/status/setup,
-- per-session git index isolation and commit serialization,
+- per-session git worktree isolation and commit serialization,
 - automatic file reservation on first edit,
 - and git pre-commit + post-commit safety gates.
 
@@ -43,7 +43,7 @@ Interlock adds a thin coordination layer:
 | MCP tools | 9 | `reserve_files`, `release_files`, `release_all`, `check_conflicts`, `my_reservations`, `send_message`, `fetch_inbox`, `request_release`, `list_agents` |
 | Commands | 4 | `join`, `leave`, `status`, `setup` |
 | Skills | 2 | `coordination-protocol`, `conflict-recovery` |
-| Hooks | 3+2 | `SessionStart` (auto-register + git index isolation), `PreToolUse:Edit` (blocking + auto-reserve), `Stop` (cleanup), plus git `pre-commit` and `post-commit` enforcement |
+| Hooks | 3+2 | `SessionStart` (auto-register + git worktree isolation), `PreToolUse:Edit` (blocking + auto-reserve), `Stop` (cleanup), plus git `pre-commit` and `post-commit` enforcement |
 
 ### 5.1 Go binary (`cmd/interlock-mcp`)
 
@@ -71,13 +71,13 @@ Client methods map directly to `intermute` endpoints for:
 
 `hooks/hooks.json` wires host events to:
 
-- `session-start.sh`: auto-registration, environment export, and per-session git index setup (`GIT_INDEX_FILE=.git/index-$SESSION_ID`) when joined,
+- `session-start.sh`: auto-registration, environment export, and per-session linked worktree setup (`INTERLOCK_SESSION_WORKTREE`) when joined,
 - `pre-edit.sh`: **blocking** enforcement on edits to exclusively reserved files (`decision:block`), with auto-reserve on first edit (15min TTL, auto-renewing),
-- `stop.sh`: release-and-cleanup (including session index file removal).
+- `stop.sh`: release-and-cleanup. Session worktrees are retained by default so uncommitted work is not destroyed.
 
 Script helpers include `interlock-check.sh`, `interlock-register.sh`, `interlock-cleanup.sh`, and `interlock-signal.sh`. Repository enforcement uses `interlock-install-hooks` to install two git hooks:
-- `interlock-precommit-hook`: acquires `mkdir`-based commit lock, refreshes index via `git read-tree HEAD`, checks reservations against staged files,
-- `interlock-postcommit-hook`: refreshes session index, auto-releases reservations for committed files, broadcasts commit event via Intermute.
+- `interlock-precommit-hook`: acquires `mkdir`-based commit lock and checks reservations against staged files,
+- `interlock-postcommit-hook`: auto-releases reservations for committed files and broadcasts commit event via Intermute.
 
 ## 6. Key Workflows
 
@@ -93,8 +93,8 @@ Script helpers include `interlock-check.sh`, `interlock-register.sh`, `interlock
 
 1. `check_conflicts` MCP tool runs read-only conflict checks.
 2. `PreToolUse:Edit` hook blocks edits to files exclusively reserved by another session (`decision:block`). On first edit, auto-reserves the file (15min TTL, auto-renewing).
-3. git pre-commit hook acquires commit lock, refreshes index, and enforces reservation checks against staged files.
-4. git post-commit hook refreshes the session index, auto-releases reservations for committed files, and broadcasts the commit event.
+3. git pre-commit hook acquires commit lock and enforces reservation checks against staged files.
+4. git post-commit hook auto-releases reservations for committed files and broadcasts the commit event.
 5. A clear block message requires agents to resolve conflicts, wait, or use `--no-verify` knowingly.
 
 ### 6.3 Agent Messaging
@@ -125,4 +125,3 @@ Tool actions emit lightweight signal events through `interlock-signal.sh`:
 - Coordination depends on `intermute` availability; hooks degrade gracefully if the service is temporarily unreachable.
 - Edit blocking relies on reservation state in `intermute`; if the service is unreachable, the edit hook fails open (allows the edit) to avoid blocking work entirely. `--no-verify` on commits bypasses the pre-commit gate.
 - Unix socket path and service health assumptions require healthy local environment setup for full capability.
-
