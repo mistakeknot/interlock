@@ -65,4 +65,12 @@ if [[ -x "$SIGNAL_SCRIPT" ]]; then
         2>/dev/null || true
 fi
 
+# Persist event to cross-session hook log (best-effort; library may not be present).
+if [[ -f "${HOME}/.claude/hooks/lib-hook-log.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "${HOME}/.claude/hooks/lib-hook-log.sh" 2>/dev/null && \
+        declare -f hook_log_info >/dev/null 2>&1 && \
+        hook_log_info "interlock-subagent-stop" "released ${ACTIVE_COUNT} reservations (agent=${AGENT_ID} subagent=${SUBAGENT_ID:-?})"
+fi
+
 exit 0
