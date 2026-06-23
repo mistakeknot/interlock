@@ -1,7 +1,9 @@
 # Shared-Filesystem Coordination
 
-Status: **0.2.16 ships tier 1 (this doc's "stop the bleed" + shared-FS pivot).**
-Tiers 2–3 are roadmap, gated on experiments (see §4).
+Status: **0.2.16 ships tier 1** (shared-FS pivot + leak fix). **Tier 2
+(embedding similarity) is validated** by experiment (E1 latency PASS, E2
+discrimination PASS — see §4) and ready to implement, pending the E3 glob-hit-rate
+data point. Tier 3 (LLM/distilled adjudication) is roadmap.
 
 ## 1. Why the model changed
 
@@ -80,38 +82,56 @@ the expensive tiers off the hot path for ~99% of edits.
 **Tier 1 — glob overlap (shipped).** intermute/`ic` reservation check. Free.
 Only escalate when a filename overlap with a *live peer reservation* exists.
 
-**Tier 2 — embedding similarity (roadmap).** On overlap, embed the two edit
-regions (or the reserving agent's stated objective vs. this edit's target) with
-the already-local `intersearch` model (`nomic-embed-text-v1.5`, 768d) and compare
-cosine similarity. A warm encode of two short spans is single-to-low-tens of ms —
-within a per-edit budget. Generative inference is **not** viable here: the local
-MLX server (`interfer`) is ~300ms TTFT warm on its smallest useful model,
-serializes all requests, and the hook timeout is 5s.
+**Tier 2 — embedding similarity (validated, ready to implement).** On overlap,
+embed the two edit regions with the already-local `intersearch` model
+(`nomic-embed-text-v1.5`, 768d, via `EmbeddingClient.embed_batch`) and compare
+cosine similarity. **Empirically confirmed (E1/E2 below):** a pair-encode runs
+p50 13.5 ms / p99 ~20 ms warm — well inside the budget — and cosine cleanly
+separates same-region edits from independent-region edits. Generative inference
+is **not** viable here: the local MLX server (`interfer`) is ~300 ms TTFT warm on
+its smallest useful model, serializes all requests, and the hook timeout is 5 s.
 
-**Tier 3 — distilled classifier (roadmap).** For overlap cases where embeddings
-are ambiguous, log every `(reservation_context, edit_A, edit_B) → conflict?`
-decision (the `intercept` pattern: `decisions.jsonl`), optionally consult a
-fast cloud model async/advisory. Once a few hundred labels accumulate, distill to
-a tiny local classifier (xgboost, or `interfer`'s purpose-built 262K-param
-`ReservoirReadout` head) for a sub-ms forward pass.
+What tier 2 measures is **region/topic similarity, not logical contradiction.**
+High cosine = "these edits touch the same code/logic" — the correct *trigger* for
+a closer look, not a verdict. It exists to kill the "same file, different
+function" false positives that tier 1 (filename) over-reports, narrowing the
+candidate set for tier 3. Use a **hysteresis band**, not a knife-edge threshold:
+
+- cosine **< 0.70** → treat as no-conflict (allow; auto-reserve)
+- cosine **> 0.90** → treat as conflict (block / warn per fail-posture)
+- **0.70–0.90** → escalate to tier 3
+
+(The measured empty band was [0.69, 0.93]; 0.70/0.90 are the conservative edges.
+Re-validate on real interlock edit traces before hard-coding — the corpus was 16
+constructed pairs.)
+
+**Tier 3 — distilled classifier (roadmap).** For the 0.70–0.90 escalation band,
+log every `(reservation_context, edit_A, edit_B) → conflict?` decision (the
+`intercept` pattern: `decisions.jsonl`), optionally consult a fast cloud model
+async/advisory. Once a few hundred labels accumulate, distill to a tiny local
+classifier (xgboost, or `interfer`'s purpose-built 262K-param `ReservoirReadout`
+head) for a sub-ms forward pass. Tier 3 is the only tier that adjudicates actual
+*contradiction* (vs. tier 2's "same region").
 
 Promotion follows interlock's existing shadow→enforce pattern: any model verdict
 starts as `additionalContext` (advisory) before graduating to `decision:block`.
 
-### Experiments gating tier 2 (E1–E3)
+### Experiment results (E1–E2 run 2026-06-23; artifacts in job tmp `embed-exp/`)
 
-- **E1 — embedding latency.** Warm-encode real code-span pairs via intersearch's
-  `EmbeddingClient`; measure p50/p99 on target hardware. Confirms tier 2 fits the
-  per-edit budget (the estimate is tens-of-ms; measure it).
-- **E2 — discrimination.** Cosine similarity over known conflict vs non-conflict
-  edit pairs. If similarity doesn't separate the classes, tier 2 is theater and
-  tier 3 is needed sooner. (Corpus: same-file edit pairs from real multi-agent
-  and reconcile runs.)
-- **E3 — glob hit rate.** Instrument how often edits actually overlap a live
-  reservation in real runs. If <1%, tier 1 carries everything and tiers 2–3 are
-  rarely-exercised insurance.
-
-Results from E1–E3 feed back into this doc before tier 2 is implemented.
+- **E1 — embedding latency: PASS.** Warm steady-state on M-series: single span
+  encode p50 7.3 / p99 12.0 ms; **pair (2 encodes + cosine) p50 13.5 / p99 19.9
+  ms.** Cold model load ~4.2 s one-time (amortized by a warm process). Fits the
+  tens-of-ms budget with margin; batching both regions in one call would shave more.
+- **E2 — discrimination: PASS.** 16 hand-labeled pairs (8 conflict / 8 not).
+  NO-CONFLICT cosine ∈ [0.45, 0.69]; CONFLICT ∈ [0.93, 1.00] — a **0.234-wide
+  empty band, zero overlap**, 100% separable. The hardest realistic case (two
+  different functions in the *same* file) sat at 0.45–0.69, i.e. embeddings
+  correctly demote it below the conflict band. Caveat: small constructed corpus;
+  treat the band as provisional pending real-trace validation.
+- **E3 — glob hit rate (not yet run).** Needs instrumentation on real
+  multi-agent runs: how often does an edit actually overlap a live peer
+  reservation? If <1%, tier 1 carries the load and tiers 2–3 are rare insurance.
+  This is the next data point before investing in tier-2 implementation.
 
 ## 5. Config knobs
 

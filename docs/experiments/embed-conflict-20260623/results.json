@@ -1,0 +1,208 @@
+{
+  "model": "nomic-ai/nomic-embed-text-v1.5",
+  "dim": 768,
+  "E1": {
+    "single_encode_ms": {
+      "n": 30,
+      "min": 6.806,
+      "p50": 15.467,
+      "p90": 71.867,
+      "p99": 115.167,
+      "max": 122.406,
+      "mean": 29.742
+    },
+    "pair_2enc_plus_cosine_ms": {
+      "n": 30,
+      "min": 10.305,
+      "p50": 13.73,
+      "p90": 17.137,
+      "p99": 22.397,
+      "max": 22.804,
+      "mean": 14.509
+    },
+    "raw_single_ms": [
+      79.978,
+      16.568,
+      18.687,
+      122.406,
+      13.782,
+      70.481,
+      60.863,
+      7.317,
+      14.04,
+      97.442,
+      15.686,
+      14.72,
+      15.248,
+      39.861,
+      16.042,
+      13.314,
+      14.546,
+      13.062,
+      7.999,
+      13.492,
+      13.145,
+      13.362,
+      25.6,
+      9.254,
+      6.806,
+      70.966,
+      21.315,
+      13.655,
+      27.429,
+      25.191
+    ],
+    "raw_pair_ms": [
+      22.804,
+      16.816,
+      21.4,
+      17.1,
+      17.467,
+      15.258,
+      11.915,
+      13.697,
+      16.136,
+      16.968,
+      16.493,
+      16.226,
+      13.447,
+      14.577,
+      13.172,
+      13.762,
+      13.435,
+      15.252,
+      12.514,
+      12.295,
+      12.948,
+      12.116,
+      10.532,
+      10.305,
+      14.086,
+      15.712,
+      13.043,
+      12.327,
+      12.185,
+      11.276
+    ],
+    "verdict_pair_under_50ms": true,
+    "verdict_pair_under_100ms": true
+  },
+  "E2": {
+    "pairs_sorted_by_cosine": [
+      {
+        "id": "py-chunk-vs-retry",
+        "label": "NO-CONFLICT",
+        "desc": "chunk_file vs retry \u2014 independent utilities",
+        "cosine": 0.4531
+      },
+      {
+        "id": "ts-formatduration-vs-overlaps",
+        "label": "NO-CONFLICT",
+        "desc": "formatDuration vs overlaps \u2014 unrelated utilities",
+        "cosine": 0.5064
+      },
+      {
+        "id": "py-args-vs-sha256",
+        "label": "NO-CONFLICT",
+        "desc": "parse_args vs sha256_file \u2014 unrelated",
+        "cosine": 0.5134
+      },
+      {
+        "id": "imports-vs-render",
+        "label": "NO-CONFLICT",
+        "desc": "additive imports block vs render_tile body",
+        "cosine": 0.5395
+      },
+      {
+        "id": "storyteller-vs-needs",
+        "label": "NO-CONFLICT",
+        "desc": "Storyteller::maybe_spawn_event vs decay_needs",
+        "cosine": 0.5593
+      },
+      {
+        "id": "helper-vs-test",
+        "label": "NO-CONFLICT",
+        "desc": "edit reconstruct() helper vs edit a test fn",
+        "cosine": 0.572
+      },
+      {
+        "id": "ts-router-vs-inbox",
+        "label": "NO-CONFLICT",
+        "desc": "POST /reserve handler vs InboxStore.drain",
+        "cosine": 0.6371
+      },
+      {
+        "id": "ts-interface-vs-hook",
+        "label": "NO-CONFLICT",
+        "desc": "AgentMessage interface vs useAgents hook",
+        "cosine": 0.6926
+      },
+      {
+        "id": "enum-selection-variants",
+        "label": "CONFLICT",
+        "desc": "Selection enum: both edit variant set",
+        "cosine": 0.926
+      },
+      {
+        "id": "pathfind-cost",
+        "label": "CONFLICT",
+        "desc": "pathfind inner loop: both edit cost computation",
+        "cosine": 0.9639
+      },
+      {
+        "id": "struct-relationship-fields",
+        "label": "CONFLICT",
+        "desc": "Relationship struct: both add fields, layout clash",
+        "cosine": 0.9712
+      },
+      {
+        "id": "rename-shared-symbol",
+        "label": "CONFLICT",
+        "desc": "decay_needs: rename field hunger->satiety vs edit using hunger",
+        "cosine": 0.9782
+      },
+      {
+        "id": "tick-pipeline-reorder",
+        "label": "CONFLICT",
+        "desc": "World::tick: both edit the same system-call ordering",
+        "cosine": 0.9825
+      },
+      {
+        "id": "py-embed-normalize",
+        "label": "CONFLICT",
+        "desc": "embed_batch: one disables normalize, other keeps it",
+        "cosine": 0.9896
+      },
+      {
+        "id": "ts-checkconflicts",
+        "label": "CONFLICT",
+        "desc": "checkConflicts: two edits to overlap filter",
+        "cosine": 0.9958
+      },
+      {
+        "id": "same-fn-mood-A",
+        "label": "CONFLICT",
+        "desc": "Two agents edit apply_mood body; different clamp bounds",
+        "cosine": 0.9981
+      }
+    ],
+    "conflict_cos_range": [
+      0.926,
+      0.9981
+    ],
+    "noconflict_cos_range": [
+      0.4531,
+      0.6926
+    ],
+    "clean_separation": true,
+    "suggested_threshold": 0.8093,
+    "overlap_band": [
+      0.6926,
+      0.926
+    ],
+    "best_sweep_threshold": 0.8093,
+    "best_sweep_accuracy": 1.0,
+    "n_conflict": 8,
+    "n_noconflict": 8
+  }
+}
