@@ -27,6 +27,22 @@ SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 # All agents edit the one real checkout; conflicts are handled by the
 # reservation logic below, not by blocking edits into a private worktree.
 
+# Extract this edit's new content (the region we'd embed for tier-2). Edit tools
+# carry new_string; Write carries content. Best-effort; empty is fine (fail-open).
+EDIT_REGION=$(echo "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || EDIT_REGION=""
+
+# tier2_verdict <peer_reason> -> echoes the semantic-check verdict (or "unknown").
+# Tier-2 (0.2.17) downgrades a filename-level block when this edit's region is
+# semantically far from the peer's reservation reason. SHADOW by default
+# (INTERLOCK_SEMANTIC_ENABLE unset/0): we compute + annotate but do NOT change
+# the block decision, accumulating real-trace data before enforcing. When
+# enabled, a "no-conflict" verdict converts the block to an advisory warning.
+tier2_verdict() {
+    local peer_reason="$1"
+    [[ -n "$EDIT_REGION" && -n "$peer_reason" ]] || { echo unknown; return; }
+    bash "${SCRIPT_DIR}/../scripts/interlock-semantic-check.sh" "$EDIT_REGION" "$peer_reason" 2>/dev/null || echo unknown
+}
+
 # --- Check inbox for commit notifications (throttled) ---
 # When another session commits, the postcommit hook sends a "commit:<hash>"
 # message to our inbox. We pull those changes before checking conflicts so
@@ -143,12 +159,25 @@ if command -v ic &>/dev/null && ic version &>/dev/null 2>&1; then
         # Conflict found — Reserve returned conflict info
         blocker=$(echo "$result" | jq -r '.conflict.blocker_owner // "unknown"' 2>/dev/null) || blocker="unknown"
         reason=$(echo "$result" | jq -r '.conflict.blocker_reason // ""' 2>/dev/null) || reason=""
+
+        # --- Tier-2 semantic gate ---
+        v2=$(tier2_verdict "$reason")
+        if [[ "${INTERLOCK_SEMANTIC_ENABLE:-0}" == "1" && "$v2" == "no-conflict" ]]; then
+            # Enforced + clearly different region: downgrade block -> advisory allow.
+            jq -nc --arg fp "$REL_PATH" --arg bl "$blocker" \
+                '{"additionalContext":("INTERLOCK: \($fp) is reserved by \($bl), but your edit appears to touch a different region (tier-2 no-conflict). Proceeding; coordinate if you find you overlap.")}'
+            exit 0
+        fi
         reason_display=""
         if [[ -n "$reason" ]]; then
             reason_display="\"${reason}\", "
         fi
-        jq -nc --arg fp "$REL_PATH" --arg bl "$blocker" --arg rd "$reason_display" \
-            '{"decision":"block","reason":"INTERLOCK: \($fp) reserved by \($bl) (\($rd)use request_release or wait for expiry)."}'
+        # In shadow mode (default), annotate the block with the computed verdict
+        # so real-trace data accumulates without changing behavior.
+        shadow_note=""
+        [[ "${INTERLOCK_SEMANTIC_ENABLE:-0}" != "1" && "$v2" != "unknown" ]] && shadow_note=" [tier-2 shadow: ${v2}]"
+        jq -nc --arg fp "$REL_PATH" --arg bl "$blocker" --arg rd "$reason_display" --arg sn "$shadow_note" \
+            '{"decision":"block","reason":"INTERLOCK: \($fp) reserved by \($bl) (\($rd)use request_release or wait for expiry).\($sn)"}'
         exit 0
     elif [[ $rc -eq 0 ]]; then
         # Reserved successfully — allow the edit
@@ -177,6 +206,16 @@ if [[ -n "$CONFLICT" ]]; then
     REASON=$(echo "$CONFLICT" | jq -r '.reason // ""' 2>/dev/null) || REASON=""
     EXPIRES=$(echo "$CONFLICT" | jq -r '.expires_at // ""' 2>/dev/null) || EXPIRES=""
 
+    # --- Tier-2 semantic gate (HTTP path) ---
+    V2=$(tier2_verdict "$REASON")
+    if [[ "${INTERLOCK_SEMANTIC_ENABLE:-0}" == "1" && "$V2" == "no-conflict" ]]; then
+        jq -nc --arg fp "$REL_PATH" --arg hb "$HELD_BY" \
+            '{"additionalContext":("INTERLOCK: \($fp) is reserved by \($hb), but your edit appears to touch a different region (tier-2 no-conflict). Proceeding; coordinate if you find you overlap.")}'
+        exit 0
+    fi
+    SHADOW_NOTE=""
+    [[ "${INTERLOCK_SEMANTIC_ENABLE:-0}" != "1" && "$V2" != "unknown" ]] && SHADOW_NOTE=" [tier-2 shadow: ${V2}]"
+
     # Format expiry for human readability
     EXPIRES_DISPLAY="$EXPIRES"
     if [[ -n "$EXPIRES" ]] && command -v date &>/dev/null; then
@@ -204,7 +243,8 @@ if [[ -n "$CONFLICT" ]]; then
         --arg hb "$HELD_BY" \
         --arg rd "$REASON_DISPLAY" \
         --arg ed "$EXPIRES_DISPLAY" \
-        '{"decision": "block", "reason": ("INTERLOCK: " + $fp + " is exclusively reserved by " + $hb + " (" + $rd + "expires " + $ed + "). Work on other files, use request_release(agent_name=\"" + $hb + "\"), or wait for expiry.")}'
+        --arg sn "$SHADOW_NOTE" \
+        '{"decision": "block", "reason": ("INTERLOCK: " + $fp + " is exclusively reserved by " + $hb + " (" + $rd + "expires " + $ed + "). Work on other files, use request_release(agent_name=\"" + $hb + "\"), or wait for expiry." + $sn)}'
     exit 0
 fi
 

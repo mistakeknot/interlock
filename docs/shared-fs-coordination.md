@@ -1,9 +1,19 @@
 # Shared-Filesystem Coordination
 
-Status: **0.2.16 ships tier 1** (shared-FS pivot + leak fix). **Tier 2
-(embedding similarity) is validated** by experiment (E1 latency PASS, E2
-discrimination PASS — see §4) and ready to implement, pending the E3 glob-hit-rate
-data point. Tier 3 (LLM/distilled adjudication) is roadmap.
+Status: **0.2.16** ships tier 1 (shared-FS pivot + leak fix). **0.2.17 ships
+tier 2 (embedding similarity) in SHADOW mode** — the verdict is computed and
+annotated onto block messages, but does not change behavior until
+`INTERLOCK_SEMANTIC_ENABLE=1`. Validated by experiment (E1 latency PASS, E2
+discrimination PASS — see §4). Tier 3 (LLM/distilled adjudication) is roadmap.
+
+**Implementation note / honest limitation:** at the reservation layer the peer's
+actual in-flight edit is not available — only their reservation *reason* string.
+So tier 2 compares *this edit's new content* against *the peer's reason*, which
+is a weaker signal than the region-vs-region setup E2 measured (it lands in the
+0.70–0.90 "escalate" band more often). The full-strength upgrade is to store an
+embedding of the reserved region at reserve-time (touches intermute/ic schema) so
+a later checker does true region-vs-region; tracked as a follow-up. Shadow mode
+exists precisely to gather real-trace data on this weaker signal before enforcing.
 
 ## 1. Why the model changed
 
@@ -139,5 +149,14 @@ starts as `additionalContext` (advisory) before graduating to `decision:block`.
   (default `~/.cache/interlock/worktrees`).
 - `INTERLOCK_SWEEP_AGE_DAYS` — only sweep dirs older than N days (default 1).
 - `INTERLOCK_SWEEP_DRY_RUN=1` — report only, change nothing.
+- `INTERLOCK_SEMANTIC_ENABLE` — tier-2 enforcement (default `0` = shadow: compute
+  + annotate only; `1` = enforce: a "no-conflict" verdict downgrades a filename
+  block to an advisory allow).
+- `INTERLOCK_SEMANTIC_LOW` / `INTERLOCK_SEMANTIC_HIGH` — hysteresis band edges
+  (defaults `0.70` / `0.90`).
+- `INTERLOCK_INTERSEARCH_DIR` — path to the intersearch repo providing the
+  embedding model (default `~/projects/Sylveste/interverse/intersearch`).
+- `INTERLOCK_SEMANTIC_TIMEOUT` — seconds before the semantic check gives up and
+  fails open (default `3`).
 - Join flag `~/.config/clavain/intermute-joined` — master on/off for all
   coordination.
