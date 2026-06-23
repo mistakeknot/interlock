@@ -21,11 +21,8 @@ STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null) ||
 
 SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 
-# Session worktrees are intentionally retained by default. They may contain
-# uncommitted work or detached commits that still need to be pushed/merged.
-if [[ -n "${INTERLOCK_SESSION_WORKTREE:-}" ]]; then
-    echo "INTERLOCK: session worktree retained at ${INTERLOCK_SESSION_WORKTREE}" >&2
-fi
+# As of 0.2.16 interlock no longer creates per-session worktrees (shared-FS model),
+# so there is nothing to retain or reap here. Reservation/temp cleanup only.
 
 # Delegate cleanup to helper script (best effort)
 "${SCRIPT_DIR}/../scripts/interlock-cleanup.sh" \

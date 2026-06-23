@@ -71,9 +71,9 @@ Client methods map directly to `intermute` endpoints for:
 
 `hooks/hooks.json` wires host events to:
 
-- `session-start.sh`: auto-registration, environment export, and per-session linked worktree setup (`INTERLOCK_SESSION_WORKTREE`) when joined,
+- `session-start.sh`: auto-registration, environment export, and a throttled best-effort orphan sweep when joined. **As of 0.2.16 interlock uses a shared-filesystem model and no longer creates per-session worktrees** — see §5.4 and `docs/shared-fs-coordination.md`,
 - `pre-edit.sh`: **blocking** enforcement on edits to exclusively reserved files (`decision:block`), with auto-reserve on first edit (15min TTL, auto-renewing),
-- `stop.sh`: release-and-cleanup. Session worktrees are retained by default so uncommitted work is not destroyed.
+- `stop.sh`: release-and-cleanup (reservations + temp files). No worktrees to retain under the shared-FS model.
 
 Script helpers include `interlock-check.sh`, `interlock-register.sh`, `interlock-cleanup.sh`, and `interlock-signal.sh`. Repository enforcement uses `interlock-install-hooks` to install two git hooks:
 - `interlock-precommit-hook`: acquires `mkdir`-based commit lock and checks reservations against staged files,

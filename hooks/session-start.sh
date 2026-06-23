@@ -18,27 +18,37 @@ SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null) || S
 # NOTE: CLAUDE_SESSION_ID is written by Clavain's session-start.sh (canonical writer).
 # Do NOT duplicate here — both hooks run async, creating a race condition (iv-erb1).
 
-# --- Per-session git worktree isolation ---
-# Each session gets a linked worktree instead of a synthetic git index.
-# A real worktree has its own working directory and index, so stale session
-# indexes cannot commit peer changes as phantom deletes.
+# --- Shared-filesystem coordination model (interlock 0.2.16) ---
+# Interlock no longer creates a per-session git worktree. Each session created an
+# unconditional `git worktree add` under ~/.cache/interlock/worktrees/ with no
+# cleanup path (stop.sh retained them; the planned TTL sweeper was never built),
+# leaking GB of orphaned worktrees over time. The isolation it provided was also
+# redundant with consuming projects' own worktree discipline (e.g. elf-revel's
+# session-spawn.sh) and self-contradictory: agents isolated in private worktrees
+# cannot collide, which made the file-reservation layer — interlock's actual value —
+# coordinate nothing.
+#
+# Shared-FS model: all sessions work in the ONE real checkout. Collisions are
+# prevented (not merge-resolved) via the reservation layer:
+#   - pre-edit.sh reserves files before editing (advisory conflict warning)
+#   - commits serialized via .git/commit.lock (commit_lock_path)
+#   - the pre-commit hook blocks committing a peer's reserved file
+# See docs/shared-fs-coordination.md for the tiered semantic-conflict roadmap.
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
-SESSION_WORKTREE=""
 if [[ -n "$GIT_ROOT" && -n "${CLAUDE_ENV_FILE:-}" ]]; then
-    SESSION_WORKTREE="$(session_worktree_path "$SESSION_ID" "$GIT_ROOT")"
-    if [[ -n "$SESSION_WORKTREE" ]]; then
-        mkdir -p "$(dirname "$SESSION_WORKTREE")" 2>/dev/null || true
-        if [[ ! -e "$SESSION_WORKTREE" ]]; then
-            command git -C "$GIT_ROOT" worktree add --detach "$SESSION_WORKTREE" HEAD >/dev/null 2>&1 || true
-        fi
+    printf 'export INTERLOCK_PROJECT_ROOT=%q\n' "$GIT_ROOT" >> "$CLAUDE_ENV_FILE"
+fi
 
-        if command git -C "$SESSION_WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            printf 'export INTERLOCK_PROJECT_ROOT=%q\n' "$GIT_ROOT" >> "$CLAUDE_ENV_FILE"
-            printf 'export INTERLOCK_SESSION_WORKTREE=%q\n' "$SESSION_WORKTREE" >> "$CLAUDE_ENV_FILE"
-            echo "export INTERLOCK_WORKTREE_READY=1" >> "$CLAUDE_ENV_FILE"
-        else
-            SESSION_WORKTREE=""
-        fi
+# Self-heal: reclaim worktrees leaked by interlock <=0.2.15 (best-effort,
+# throttled to once per day per machine via a flag file). Backgrounded so it
+# never delays session start.
+SWEEP_FLAG="${HOME}/.cache/interlock/.last-sweep"
+SWEEP_SCRIPT="${SCRIPT_DIR}/../scripts/interlock-orphan-sweep.sh"
+if [[ -x "$SWEEP_SCRIPT" ]]; then
+    if [[ -z "$(find "$SWEEP_FLAG" -mtime -1 2>/dev/null)" ]]; then
+        mkdir -p "$(dirname "$SWEEP_FLAG")" 2>/dev/null || true
+        touch "$SWEEP_FLAG" 2>/dev/null || true
+        ( bash "$SWEEP_SCRIPT" >/dev/null 2>&1 & ) || true
     fi
 fi
 
@@ -78,7 +88,7 @@ cat <<ENDJSON
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "INTERLOCK: Coordination active. Registered as '${AGENT_NAME}' (${AGENT_ID:0:8}...). ${AGENT_COUNT} agent(s) online. Per-session git worktree isolation enabled${SESSION_WORKTREE:+ at ${SESSION_WORKTREE}}. Edit files in INTERLOCK_SESSION_WORKTREE; the original checkout is read-only while coordination is active. File reservations enforced via git pre-commit hook. Commits serialized via lockfile."
+    "additionalContext": "INTERLOCK: Coordination active. Registered as '${AGENT_NAME}' (${AGENT_ID:0:8}...). ${AGENT_COUNT} agent(s) online. Shared-filesystem mode: you share this working tree with other agents — there is no private worktree. Reserve files before editing (the pre-edit hook does this automatically and warns on conflict) so you don't clobber a peer's in-progress work. Commits are serialized via a lockfile; the pre-commit hook blocks committing a file another agent has reserved."
   }
 }
 ENDJSON

@@ -51,36 +51,11 @@ git_root() {
     git rev-parse --show-toplevel 2>/dev/null || echo ""
 }
 
-# session_worktree_base returns the directory where linked session worktrees live.
-session_worktree_base() {
+# legacy_worktree_base returns the directory where interlock <=0.2.15 leaked
+# per-session worktrees. Retained ONLY so the orphan sweeper can clean them up.
+# As of 0.2.16 interlock never creates worktrees (shared-FS model).
+legacy_worktree_base() {
     echo "${INTERLOCK_WORKTREE_ROOT:-${HOME}/.cache/interlock/worktrees}"
-}
-
-# _interlock_hash returns a stable short hash for a path-like key.
-_interlock_hash() {
-    if command -v sha1sum >/dev/null 2>&1; then
-        printf '%s' "$1" | sha1sum | cut -c1-12
-    elif command -v shasum >/dev/null 2>&1; then
-        printf '%s' "$1" | shasum | cut -c1-12
-    else
-        printf '%s' "$1" | cksum | awk '{print $1}'
-    fi
-}
-
-# session_worktree_path returns the linked worktree path for a session.
-# Usage: session_worktree_path <session_id> [git_root]
-session_worktree_path() {
-    local session_id="$1"
-    local root="${2:-}"
-    [[ -n "$root" ]] || root=$(git_root)
-    if [[ -z "$root" || -z "$session_id" ]]; then
-        echo ""
-        return 0
-    fi
-    local project_name project_key
-    project_name="$(basename "$root")"
-    project_key="${project_name}-$(_interlock_hash "$root")"
-    echo "$(session_worktree_base)/${project_key}/${session_id}"
 }
 
 # commit_lock_path returns the flock file path for serialized commits.
