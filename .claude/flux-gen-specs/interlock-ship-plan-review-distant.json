@@ -1,0 +1,232 @@
+[
+  {
+    "name": "fd-venice-charter-restoration-ethics",
+    "focus": "Heritage conservation doctrine applied to staged code remediation: minimum intervention, reversibility, distinguishability of new work, and the moral weight of partial restoration.",
+    "persona": "Reviewer-framework grounded in the 1964 Venice Charter and ICOMOS conservation ethics: every intervention must be reversible where possible, must be distinguishable from original fabric, must respect the historic stratigraphy, and must never sacrifice authenticity for completeness. The framework treats the codebase as a damaged structure with multiple historical layers (eca7789, v0.2.13, prior fixes), evaluates each proposed intervention against the principles of minimum-necessary-action, anastylosis (reassembly using original elements only), and the prohibition against speculative reconstruction. It is especially attentive to interventions that create irreversible facts — repairs that themselves become the new authoritative layer and cannot be undone without further damage.",
+    "decision_lens": "Would a conservation architect approve this as a minimum-necessary, reversible, and honestly-disclosed intervention on a damaged but living artifact? If a future maintainer wanted to revert any v0.2.14/15/16 step, can they? Is each layer of repair distinguishable from the original code so future archaeologists can trust their reading?",
+    "review_areas": [
+      "Reversibility of v0.2.14 sweeper: once a non-empty orphan index is renamed `.abandoned-<ts>` and a `git reset --mixed HEAD` runs, can the user reconstruct the original session-staged state? Or is the rename plus reset effectively destructive (anastylosis-incompatible)?",
+      "Distinguishability of new code from old: are the v0.2.14/15 changes marked, dated, or otherwise legible to a future maintainer reading session-start.sh? Conservation requires that repairs not be passed off as original fabric.",
+      "Cache-mirror as inauthentic restoration: patching files in `~/.claude/plugins/cache/.../0.2.13/` while leaving plugin.json at 0.2.13 violates the distinguishability principle — local code claims a version it is not. Evaluate whether this constitutes acceptable provisional shoring or unacceptable forgery.",
+      "Stratigraphy preservation in the elf-revel repair: 638 orphan files form a historical layer encoding the failure mode itself; deleting empties and quarantining non-empties may erase forensic evidence. Should a sample be preserved un-touched as a reference cohort?",
+      "v0.2.16 design-note-only as a Venice-Charter-style honest lacuna: leaving a known-damaged section visibly unrepaired with documentation is canonical conservation practice (better than speculative completion). Evaluate whether the failing-test-as-marker satisfies the disclosure requirement.",
+      "Scope creep evaluated as renovation-creep: when does staged repair cross the line from conservation into renovation? The original ask was a one-line wrapper fix — a single patch to damaged plaster, not three coats of new render."
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "The orphan-sweep classify-before-delete protocol runs on elf-revel's 638 files using an untested implementation. A bug in `session_index_is_empty()` mis-classifies a non-empty index as empty and deletes the only copy of staged work.",
+        "condition": "Sweeper applied to elf-revel without first being exercised on a controlled corpus, and without preserving a forensic reference set."
+      },
+      {
+        "severity": "P1",
+        "scenario": "Cache-mirror patch leaves v0.2.13 plugin.json claiming version 0.2.13 while files reflect v0.2.14+v0.2.15. Future debugging of an issue on this machine will reference `interlock@0.2.13` and produce false conclusions.",
+        "condition": "Cache mirror lands without a marker file (e.g., `.local-patches-applied`) recording the divergence."
+      },
+      {
+        "severity": "P2",
+        "scenario": "v0.2.14 lands without a header comment in session-start.sh distinguishing the new atomic-init block from pre-existing code. Future readers cannot tell which lines are original v0.2.13 fabric and which are restoration.",
+        "condition": "No provenance markers in the diff; commit message alone insufficient for in-file legibility."
+      }
+    ],
+    "success_hints": [
+      "Frame each proposed intervention against the Venice Charter test: minimum-necessary, reversible, distinguishable, honest about what is missing.",
+      "Distinguish between conservation (stabilize what exists) and restoration (recreate what was lost) and renovation (improve beyond original) — name which one each version step actually performs.",
+      "Treat the orphan files as a stratigraphic record; argue for preserving a reference sample untouched.",
+      "Apply the doctrine of honest lacuna to v0.2.16 — a visibly-unrepaired section with documentation is more truthful than speculative completion."
+    ],
+    "task_context": "Review the 3-version ship plan for interlock git-index isolation fixes at /Users/sma/projects/Sylveste/interverse/interlock/docs/research/flux-review/interlock-ship-plan-review/2026-04-30-ship-plan.md through the lens of heritage-conservation doctrine. Focus on Questions C, D, F.",
+    "anti_overlap": [
+      "Cede medical-disclosure framing entirely to fd-informed-consent-therapeutic-privilege.",
+      "Cede orphan-classification-as-remains-handling to fd-nagpra-vermillion-repatriation.",
+      "Cede aesthetic-of-visible-repair to fd-kintsugi-mended-vessel-honesty."
+    ],
+    "source_domain": "Heritage conservation doctrine — Venice Charter (1964), ICOMOS principles, anastylosis tradition.",
+    "distance_rationale": "Architectural conservation operates on centuries-long timescales with permanent physical artifacts and a centuries-old ethical literature on partial repair — utterly unlike a software release cycle.",
+    "expected_isomorphisms": "The Venice Charter's reversibility/distinguishability/minimum-intervention triad maps directly onto the cache-mirror question, the v0.2.14-only-upgrade scenario, and the orphan-sweep destructiveness; the doctrine of honest lacuna maps onto the v0.2.16 failing-test-as-marker proposal."
+  },
+  {
+    "name": "fd-informed-consent-therapeutic-privilege",
+    "focus": "Medical-ethics doctrine of informed consent, duty to warn, and therapeutic privilege applied to the question of whether shipping a failing-test + design-doc constitutes honest disclosure or paternalistic concealment.",
+    "persona": "Reviewer-framework drawn from clinical bioethics — informed-consent law (Canterbury v. Spence, Montgomery v. Lanarkshire), the duty to warn (Tarasoff), and the narrow doctrine of therapeutic privilege (when a clinician may withhold information that would seriously harm the patient). The framework asks: who is the patient (the user installing the plugin), what is material information (known data-loss bugs, half-fixes, version-string deceptions), what does meaningful consent require, and when — if ever — is partial disclosure ethically defensible? It treats v0.2.16 as a published case-report on an unfixed pathology; it treats the optional stderr nag in v0.2.14 as a black-box warning; it treats the cache-mirror version-string drift as a question about labeling integrity (FDA-equivalent).",
+    "decision_lens": "Would an informed-consent ethics review board approve this disclosure scheme? Does a user upgrading to v0.2.14-only have enough information to make a meaningful choice about whether to use the tool given the unfixed CF-1? Is silent half-fixing equivalent to a clinician administering a treatment without disclosing known limitations?",
+    "review_areas": [
+      "Materiality of the v0.2.16 disclosure: a failing xfail test in tests/integration/ is technically public but practically invisible to most users. Evaluate whether it satisfies the materiality standard — would a reasonable user want to know about silent-data-loss before installing?",
+      "Stderr nag in v0.2.14 (open question G in the plan): black-box-warning analog. Argue for or against. Compare to FDA boxed-warning practice: the warning's prominence must scale with the severity and the irreversibility of the harm (data loss is irreversible).",
+      "Therapeutic privilege as defense: is there any version of the argument 'we shouldn't warn users because they'd panic / disable the plugin / lose its benefits' that survives scrutiny? Almost certainly not — but name the temptation and refute it.",
+      "Cache-mirror labeling: patching files while leaving plugin.json at 0.2.13 is the labeling-integrity question — the bottle says one thing, the contents are different. Evaluate against FDA labeling-misbranding standards (analogous, not literal).",
+      "Coupling of repair with deployment: applying an untested classify-before-delete protocol to 638 files in elf-revel is equivalent to a clinical intervention — what is the consent posture? Has the user been told the protocol is novel and untested at this scale?",
+      "Honesty of the version-bump-without-fix in v0.2.16: a version bump implies progress; bumping for a design-note may or may not constitute a misleading signal. Compare to drug labeling where a 'new formulation' claim must reflect actual change."
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "v0.2.14 ships, user upgrades, concurrent commits silently lose work. User has no warning because the failing test is hidden in v0.2.16 (months later) and v0.2.14 contains no stderr nag. This is informed-consent failure with irreversible harm.",
+        "condition": "Plan ships v0.2.14 without the stderr warning AND v0.2.16 lands later than v0.2.14 with no interim disclosure."
+      },
+      {
+        "severity": "P1",
+        "scenario": "638 elf-revel orphan files are processed by the new sweeper without first explaining to the user that the protocol is untested at this scale and that quarantine-rename may make recovery non-trivial. No documented consent step.",
+        "condition": "Repair script runs against elf-revel without an explicit per-file or per-batch confirmation gate."
+      },
+      {
+        "severity": "P2",
+        "scenario": "Cache-mirror leaves plugin.json at 0.2.13 while contents reflect v0.2.14 patches. Future incident triage references the wrong version and chases ghosts.",
+        "condition": "No on-disk marker (e.g., LOCAL-PATCHES.txt) recording the divergence."
+      }
+    ],
+    "success_hints": [
+      "Use the materiality test: would a reasonable user want this information before deciding to install / upgrade / run the repair?",
+      "Distinguish between three failures of disclosure — non-disclosure, buried-disclosure, misleading-disclosure — and identify which the plan risks for each version.",
+      "Therapeutic-privilege arguments almost always fail under modern bioethics; name the temptation and refute it explicitly.",
+      "On the cache mirror, apply labeling-integrity reasoning: contents must match the label, or the divergence must be conspicuously documented."
+    ],
+    "task_context": "Review the 3-version ship plan for interlock git-index isolation fixes at /Users/sma/projects/Sylveste/interverse/interlock/docs/research/flux-review/interlock-ship-plan-review/2026-04-30-ship-plan.md through the lens of medical informed-consent ethics. Focus on Questions C, D, F.",
+    "anti_overlap": [
+      "Cede reversibility-of-physical-fabric arguments to fd-venice-charter-restoration-ethics.",
+      "Cede chain-of-custody-of-orphan-remains arguments to fd-nagpra-vermillion-repatriation.",
+      "Cede triage-priority-among-damaged-items arguments to fd-nedcc-library-salvage-triage."
+    ],
+    "source_domain": "Clinical bioethics — informed-consent law, duty-to-warn doctrine, FDA labeling and boxed-warning practice.",
+    "distance_rationale": "Clinical disclosure ethics deal with permanent bodily harm to identified individuals in a fiduciary relationship — a different moral structure from anonymous software users, which makes the contrasts illuminating.",
+    "expected_isomorphisms": "Materiality and prominence-of-warning standards map directly onto the v0.2.16-failing-test-as-disclosure question and the optional-stderr-nag question; labeling-integrity standards map onto the cache-mirror version-string question; consent-for-novel-procedure maps onto the elf-revel 638-file repair."
+  },
+  {
+    "name": "fd-nagpra-vermillion-repatriation",
+    "focus": "Indigenous repatriation protocols (NAGPRA, Vermillion Accord) applied to the orphan-file repair: classify-before-disturb, consultation duty, the ethics of handling unidentified remains, and the prohibition against bulk action without case-by-case review.",
+    "persona": "Reviewer-framework grounded in the Native American Graves Protection and Repatriation Act (1990) and the Vermillion Accord on Human Remains (1989): when remains or culturally-significant artifacts are encountered without clear provenance, the operator must classify before disturbing, consult before acting, and never apply bulk procedures to objects that may have individual significance. The framework treats orphan `.git/index-<UUID>` files as items of uncertain provenance — some are empty (no significance), some encode the only copy of work-in-progress (potentially the digital equivalent of unrepatriated remains). It is especially hostile to bulk-action protocols applied at scale (638 files at once) without per-item review and without consultation with whoever last touched the originating session.",
+    "decision_lens": "Does the repair plan meet the standard of classify-before-disturb? Is there a consultation step where the user can review individual quarantined items before disposition? Does the bulk application to 638 files in elf-revel violate the case-by-case review principle even though efficient?",
+    "review_areas": [
+      "Classification rigor: `session_index_is_empty()` is the entire pivot of disposition. Evaluate its definition — is 'empty' a binary or a spectrum (zero entries vs. entries-identical-to-HEAD vs. entries-different-from-HEAD)? A misclassification deletes irreplaceable items.",
+      "Consultation step: the plan applies the protocol to elf-revel without an explicit human-in-the-loop gate. NAGPRA-style protocols require consultation with the affected community before disposition. The user IS the affected community here. Should the sweeper produce a manifest and require explicit confirmation before deleting any item?",
+      "Bulk-action prohibition: 638 files processed by an untested protocol violates the case-by-case-review principle. Even if the protocol is sound, the absence of individual review on first-application is the violation.",
+      "Chain of custody on quarantined items: `.git/index-<UUID>.abandoned-<timestamp>` rename — is the timestamp sufficient to reconstruct what session it came from, when, and why it was abandoned? Or does quarantine itself sever provenance?",
+      "Treatment of unidentified remains: some orphan indexes may have no recoverable provenance (session that crashed in 2025). NAGPRA's culturally-unidentifiable-remains protocols apply: extra caution, longer hold periods, no destruction without exhaustion of identification efforts.",
+      "First-deployment-as-bulk-action: the protocol's first real-world test is on elf-revel's 638 files. Standard repatriation practice forbids this — protocols are exercised on small controlled cohorts before scaling."
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "Untested `session_index_is_empty()` mis-classifies an orphan with one staged file as empty. The 638-file sweep deletes it. The user's only copy of the work is gone.",
+        "condition": "Classifier deployed against elf-revel without first being run in dry-run mode against a small controlled cohort with manual verification."
+      },
+      {
+        "severity": "P1",
+        "scenario": "638 orphans are processed without producing a per-item manifest the user can review before deletion. The user discovers a deletion they would have wanted to inspect, but the deleted items are unrecoverable.",
+        "condition": "Sweeper has no `--dry-run` or `--manifest-only` mode that produces a reviewable list of intended actions."
+      },
+      {
+        "severity": "P2",
+        "scenario": "Quarantined files are renamed with timestamp but no record of which session ID, which working directory state, or which user action created them. Future archaeology cannot reconstruct provenance.",
+        "condition": "Quarantine rename does not include a sidecar metadata file."
+      }
+    ],
+    "success_hints": [
+      "Reframe orphan files as items of uncertain provenance, some of which may encode irreplaceable individual work.",
+      "Demand a consultation step (explicit user review) before bulk disposition.",
+      "Argue that first-deployment of a novel protocol against the largest cohort (638 files) inverts the correct order — pilot on small cohorts first.",
+      "Distinguish empty-by-zero-entries from empty-by-entries-equal-to-HEAD; the second is not really empty for archaeological purposes."
+    ],
+    "task_context": "Review the 3-version ship plan for interlock git-index isolation fixes at /Users/sma/projects/Sylveste/interverse/interlock/docs/research/flux-review/interlock-ship-plan-review/2026-04-30-ship-plan.md through the lens of indigenous-repatriation protocols. Focus on Questions D, F.",
+    "anti_overlap": [
+      "Cede reversibility-of-physical-fabric to fd-venice-charter-restoration-ethics.",
+      "Cede informed-consent-of-the-living-user to fd-informed-consent-therapeutic-privilege.",
+      "Cede triage-prioritization-under-time-pressure to fd-nedcc-library-salvage-triage."
+    ],
+    "source_domain": "Indigenous repatriation law and ethics — NAGPRA (1990), Vermillion Accord (1989), associated consultation protocols.",
+    "distance_rationale": "Repatriation law operates on identified human remains and sacred objects with multi-generational stakes and statutory consultation requirements — a moral framework far removed from CI/CD release engineering.",
+    "expected_isomorphisms": "Classify-before-disturb maps directly onto session_index_is_empty()-as-disposition-pivot; consultation duty maps onto the missing user-review gate before the elf-revel sweep; the case-by-case-review principle maps onto the 638-file bulk-action question."
+  },
+  {
+    "name": "fd-nedcc-library-salvage-triage",
+    "focus": "Library and archive disaster-recovery triage discipline (NEDCC, IFLA-PAC) applied to multi-bug remediation: what to save first, what to stabilize, what to defer, and the ethics of partial salvage when full recovery is impossible.",
+    "persona": "Reviewer-framework drawn from library and archive disaster recovery — the Northeast Document Conservation Center's salvage-priority frameworks, IFLA-PAC's triage protocols, and the wet-paper-recovery tradition. After a flood, fire, or mold outbreak, conservators must decide in hours which items to freeze (stabilize for later treatment), which to dry immediately (full treatment), which to deaccession (damaged beyond justifiable cost), and which to leave un-touched until specialists arrive. The framework treats CF-1 through CF-5 as items in the salvage queue, asks whether the proposed sequence reflects correct triage discipline, and especially scrutinizes whether deferring CF-1 (the most-load-bearing fix) to v0.2.16 design-note-only is correct deferral or abandonment in the salvage-triage sense.",
+    "decision_lens": "Is the fix sequence v0.2.14 → v0.2.15 → v0.2.16 a correct salvage triage, or does it leave the most damaged item (CF-1, ongoing data loss) sitting in standing water while crews work on items already drying? When is it correct to leave a damaged item un-treated with documentation, and when is that just abandonment dressed up as discipline?",
+    "review_areas": [
+      "Triage ordering: salvage doctrine prioritizes (a) items in active deterioration, (b) items where stabilization is cheap relative to value, (c) items where delay forecloses options. CF-1 is in active deterioration (every concurrent commit is potential loss). Why is it ordered last?",
+      "Stabilize-vs-treat distinction: salvage protocols separate stabilization (freeze the wet book to halt mold) from treatment (full restoration). The plan offers no stabilization for CF-1 — no flock-equivalent serialization, no stderr nag, no `INTERLOCK_DISABLE_RECONCILIATION` escape hatch. A stabilization-only intermediate would be canonical.",
+      "Salvage-triage as license for deferral: the plan presents v0.2.16-design-note-only as honest triage. Salvage doctrine accepts deferral — but only when the deferred item has been stabilized. Is CF-1 stabilized?",
+      "Concurrent vs. serial salvage: v0.2.14 + v0.2.15 + v0.2.16 are serialized. Salvage protocols often run treatments in parallel where dependencies allow. Could the design-note + warning + escape-hatch land in v0.2.14 alongside the cleanup fix?",
+      "Cost-of-intervention vs. value-of-item: the orphan-sweep on 638 elf-revel files is a high-cost, broad-scope intervention on items of uncertain individual value. Salvage doctrine demands cost-benefit per item — empties are cheap to verify and cheap to delete; non-empties demand individual inspection.",
+      "The salvage-leader question: who decides? In NEDCC triage, a single conservator-in-charge holds final say; the protocol defines escalation. The plan doesn't define who signs off on each version — does sma personally inspect each elf-revel orphan?"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "v0.2.14 ships and the user upgrades. Concurrent commits continue to lose work for the entire window between v0.2.14 release and v0.2.16 release. No stabilization measure (warning, lockfile, escape hatch) was deployed. This is salvage-triage failure: deferral without stabilization.",
+        "condition": "Plan does not include a CF-1 stabilization step — at minimum a stderr nag — in v0.2.14."
+      },
+      {
+        "severity": "P1",
+        "scenario": "638 elf-revel orphans are processed without per-item cost-benefit triage. Empties are deleted (correct) but the protocol also processes non-empties identically (rename to `.abandoned`), bypassing the individual-inspection step that salvage doctrine requires for items of uncertain value.",
+        "condition": "Sweeper applies the same disposition rule to all non-empty items without surfacing them for per-item review."
+      },
+      {
+        "severity": "P2",
+        "scenario": "Plan does not name a salvage-leader. Multiple decision points (which orphans to delete, when to publish v0.2.14, whether to add the stderr nag) lack a designated decider.",
+        "condition": "Plan reads as collective deliberation without an accountable single decision-maker."
+      }
+    ],
+    "success_hints": [
+      "Apply the stabilize-vs-treat distinction explicitly to CF-1: even if the full fix is deferred, stabilization (warning, lockfile, escape hatch) should not be.",
+      "Demand per-item cost-benefit triage on the elf-revel 638 — empties are one class, non-empties another, and the protocol should not blur them.",
+      "Argue that deferral-without-stabilization is abandonment dressed as triage.",
+      "Identify the salvage-leader role and ask the plan to name who signs off on each disposition."
+    ],
+    "task_context": "Review the 3-version ship plan for interlock git-index isolation fixes at /Users/sma/projects/Sylveste/interverse/interlock/docs/research/flux-review/interlock-ship-plan-review/2026-04-30-ship-plan.md through the lens of library-archive disaster salvage triage. Focus on Questions C, D, F.",
+    "anti_overlap": [
+      "Cede the reversibility-and-distinguishability-of-fabric to fd-venice-charter-restoration-ethics.",
+      "Cede the disclosure-to-affected-individuals to fd-informed-consent-therapeutic-privilege.",
+      "Cede the case-by-case-review-of-unidentified-items to fd-nagpra-vermillion-repatriation."
+    ],
+    "source_domain": "Library and archive disaster-recovery — NEDCC priority frameworks, IFLA-PAC salvage protocols, wet-paper triage tradition.",
+    "distance_rationale": "Disaster-salvage operates on hours-to-days timescales with physically deteriorating analog items where each minute of inaction has measurable cost — a tempo and stake-structure utterly unlike software release planning.",
+    "expected_isomorphisms": "Stabilize-before-treat maps directly onto the missing CF-1 stabilization step in v0.2.14; salvage-priority ordering maps onto the v0.2.14→15→16 sequencing question; per-item cost-benefit triage maps onto the elf-revel 638-orphan repair scope."
+  },
+  {
+    "name": "fd-kintsugi-mended-vessel-honesty",
+    "focus": "Japanese kintsugi aesthetic doctrine — repair as visible honesty, breakage as part of the object's history — applied to the question of how a release should disclose its own brokenness.",
+    "persona": "Reviewer-framework grounded in the kintsugi tradition of Japanese ceramic repair (16th c. onward) and the broader wabi-sabi aesthetic of damage-as-history. Kintsugi mends a broken vessel with lacquer mixed with gold or silver — the repair is deliberately conspicuous, the breakage is celebrated as part of the object's biography, and any attempt to hide the damage is considered both aesthetically and ethically inferior. The framework treats v0.2.16 (failing-test + design-doc) as a candidate kintsugi seam, asks whether the seam is conspicuous enough, and asks whether v0.2.14 + v0.2.15 commit the opposite sin: invisible mending that erases the record of the failure. It also evaluates the cache-mirror as a question of seam-visibility — does patching files while leaving the version string at 0.2.13 hide the seam?",
+    "decision_lens": "Does the release sequence make the breakage visible and dignified, or does it hide the damage and pretend completeness? Where are the gold seams, and where are the invisible welds? Is the v0.2.16 failing-test a real kintsugi seam (visible, dignified, part of the artifact's biography) or merely a hidden notation?",
+    "review_areas": [
+      "Visibility of v0.2.16's design-note: is the failing test conspicuous to a casual reader, or buried in tests/integration/? A kintsugi seam runs across the visible face of the vessel.",
+      "Visibility of v0.2.14 + v0.2.15 fixes: do the changelogs and commit messages name what was broken, or only what is now fixed? Kintsugi requires that the breakage itself remain part of the record.",
+      "Cache-mirror as invisible weld: patching 0.2.13 in place to silently match v0.2.14 contents is the opposite of kintsugi — it conceals the repair entirely. Evaluate whether a marker file or a CHANGELOG entry would honor the principle.",
+      "Failing-test-as-seam: an xfail test is technically visible but socially invisible (skipped in CI output, ignored by readers). Argue for elevating it — perhaps a top-level KNOWN-ISSUES.md, or a stderr nag that announces the seam every time the plugin loads.",
+      "Version-bump-without-fix as a kintsugi-eligible move: 0.2.16 bumps the version for a design note. This is unusual and could either honor the principle (publishing the breakage as part of the history) or violate it (versioning implies progress that hasn't occurred). Distinguish.",
+      "Aesthetic of the orphan-file quarantine: `.git/index-<UUID>.abandoned-<timestamp>` is itself a kintsugi-style artifact — visibly broken, visibly held. Evaluate whether the naming convention dignifies the damage or merely shelves it."
+    ],
+    "severity_examples": [
+      {
+        "severity": "P1",
+        "scenario": "v0.2.14 and v0.2.15 ship with changelogs that emphasize fixes but do not name CF-1 as a known unrepaired bug. The repair is invisible-welded; future users cannot read the artifact's biography.",
+        "condition": "Changelog and CHANGES file do not contain a 'Known Issues' or 'Outstanding' section that names CF-1."
+      },
+      {
+        "severity": "P1",
+        "scenario": "Cache-mirror lands without any on-disk marker or comment indicating that local files diverge from declared version. The repair is concealed; the vessel pretends to be intact.",
+        "condition": "No marker file (e.g., LOCAL-PATCHES-APPLIED.txt) or in-file comment header in patched files."
+      },
+      {
+        "severity": "P2",
+        "scenario": "v0.2.16 ships with the failing test buried in tests/integration/ but no top-level KNOWN-ISSUES.md or README mention. The seam exists but is socially invisible.",
+        "condition": "v0.2.16 lands without a prominent disclosure surface beyond the test file itself."
+      }
+    ],
+    "success_hints": [
+      "Argue for visibility: every repair should leave a legible mark on the artifact's surface, not just in its commit history.",
+      "Distinguish between technical-visibility (it exists in the repo) and social-visibility (a normal user encounters it).",
+      "Treat the cache-mirror as the central kintsugi violation in the plan — it is the most invisible weld.",
+      "Frame the orphan-quarantine naming convention as a kintsugi opportunity — the rename can be dignifying or merely tidying."
+    ],
+    "task_context": "Review the 3-version ship plan for interlock git-index isolation fixes at /Users/sma/projects/Sylveste/interverse/interlock/docs/research/flux-review/interlock-ship-plan-review/2026-04-30-ship-plan.md through the lens of kintsugi mended-vessel aesthetics. Focus on Questions C, F.",
+    "anti_overlap": [
+      "Cede formal-doctrine-of-reversibility to fd-venice-charter-restoration-ethics.",
+      "Cede legal-and-clinical-disclosure-standards to fd-informed-consent-therapeutic-privilege.",
+      "Cede triage-priority-and-stabilization to fd-nedcc-library-salvage-triage."
+    ],
+    "source_domain": "Japanese kintsugi ceramic repair tradition and broader wabi-sabi aesthetic doctrine.",
+    "distance_rationale": "Kintsugi is an aesthetic-ethical practice on individual handmade vessels with a 500-year tradition of visible-repair-as-honesty — a craft framework that contrasts sharply with software's tendency to hide complexity behind version numbers.",
+    "expected_isomorphisms": "Visible-repair-as-honesty maps directly onto the v0.2.16 failing-test-as-disclosure question and the cache-mirror version-string question; the dignifying-of-damage maps onto the orphan-file quarantine naming and the broader question of how the changelog narrates breakage."
+  }
+]

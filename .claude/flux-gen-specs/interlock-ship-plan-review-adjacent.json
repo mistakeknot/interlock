@@ -1,0 +1,207 @@
+[
+  {
+    "name": "fd-semver-coordination",
+    "focus": "Semver discipline across a 3-version ship sequence — whether each version bump is correctly scoped, what a user stuck at an intermediate version experiences, and whether the design-note-only v0.2.16 justifies its own minor-version bump",
+    "persona": "Apply the perspective of a release engineer who manages multi-version libraries consumed by auto-update pipelines. They care about the semantic contract embedded in version numbers — whether a consumer can safely pin to an intermediate version and what invariants each version level guarantees. They measure whether stuck-at-intermediate users are in a coherent, documented state or a hazardous partial-fix state. They flag version bumps that are overclaimed (a design-note getting a minor bump implies behavioral change), underclaimed (a wrapper behavior change getting a patch bump implies no interface change), or that leave consumers in an undocumented degraded mode.",
+    "decision_lens": "Every version boundary is evaluated by three questions: (1) Is a user who upgrades to exactly this version and no further in a state that is safer, equivalent, or more dangerous than the version before? (2) Does the version number truthfully signal the scope of change to a consumer who reads semver docs? (3) Is the intermediate version a supportable long-term position, or does it create a 'trap door' where the unfixed bugs make the new features dangerous?",
+    "review_areas": [
+      "Whether v0.2.14 alone is a net improvement or a trap door — the cleanup gap is fixed but nested-repo and concurrent-commit-loss remain, and the new sweeper and atomic init could interact with the still-broken lifecycle in unexpected ways",
+      "Whether v0.2.16 (design-note + xfail test, no fix) justifies a minor version bump or should be a patch bump, a doc commit on the same version, or no version bump at all — and whether bumping version without fixing implies to auto-update consumers that the bug is resolved",
+      "The stuck-at-v0.2.14 user experience: the plan documents what is NOT fixed, but does it provide a machine-readable signal (plugin.json known_issues, CHANGELOG entry, runtime warning) or only prose documentation that consumers won't read",
+      "Whether the 3-version sequence assumes a linear upgrade path that the marketplace may not guarantee — if a user skips from v0.2.13 directly to v0.2.16, do the fixes compose safely without the intermediate versions' states",
+      "Whether the INTERLOCK_DISABLE_INDEX_ISOLATION=1 escape hatch introduced in v0.2.14 needs a deprecation timeline or a documented removal condition, given it may calcify into permanent use if v0.2.15/v0.2.16 are delayed"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P1",
+        "scenario": "v0.2.16 ships a version bump for a design-note-only change, causing auto-update consumers to receive a 'new version' notification that implies resolution of the known data-loss bug — users who read the version bump as a signal to re-enable concurrent workflows are now more vulnerable",
+        "condition": "plugin.json bumped to 0.2.16 with no runtime change and no machine-readable known_issues field"
+      },
+      {
+        "severity": "P1",
+        "scenario": "A user upgrades to v0.2.14 and operates there indefinitely — the plan acknowledges this state but provides no runtime signal that CF-3 (nested-repo) and CF-5 (concurrent-commit TOCTOU) remain live bugs",
+        "condition": "v0.2.14 ships no runtime warning or plugin.json annotation for the unresolved P0 bugs"
+      },
+      {
+        "severity": "P2",
+        "scenario": "The v0.2.14 → v0.2.15 sequencing assumes both are shipped and adopted in order, but a consumer who pins to v0.2.15 has skipped v0.2.14's orphan sweeper — plan does not verify that v0.2.15's wrapper hardening is safe without the v0.2.14 cleanup having already run",
+        "condition": "No documented skip-version compatibility analysis"
+      }
+    ],
+    "success_hints": [
+      "Check whether each version bump in plugin.json is accompanied by a CHANGELOG entry that machine-readable tooling could consume",
+      "Verify that the xfail test in v0.2.16 is annotated with the GitHub issue number so consumers can track resolution status",
+      "Confirm whether the stuck-at-v0.2.14 state is documented in the plugin.json itself (known_issues or compat fields) or only in prose"
+    ],
+    "task_context": "The ship plan proposes three sequential version bumps for the interlock plugin (v0.2.14 lifecycle hotfix, v0.2.15 wrapper hardening, v0.2.16 design-note-only). The plugin uses semver and consumers may auto-update. Open question A asks whether the v0.2.14 → v0.2.15 → v0.2.16 sequencing is correct. Open question C asks whether shipping a failing test plus design doc without the fix is appropriate. This agent evaluates those questions through the release engineering lens — version contracts, stuck-at-intermediate user states, and whether version bumps are truthfully scoped.",
+    "anti_overlap": [
+      "Do not review git branch mechanics or PR-against-self patterns — fd-irreversible-action-discipline covers that",
+      "Do not evaluate the test strategy for individual test cases — fd-test-coverage-gaps covers that",
+      "Do not assess cache resync behavior when marketplace ships its own v0.2.14 — fd-cache-mirror-drift covers that"
+    ]
+  },
+  {
+    "name": "fd-cache-mirror-drift",
+    "focus": "Cache/distribution mechanics for the local plugin cache — what claimed-vs-actual code divergence means in practice, what triggers marketplace resync, and what happens when upstream ships its own v0.2.14 while the local cache has been patched in-place",
+    "persona": "Apply the perspective of a distribution systems engineer who maintains package mirrors and has debugged cache invalidation failures in production. They care about the invariants a cached artifact is supposed to satisfy — whether the cache entry's version label accurately describes the code on disk — and about what events trigger cache invalidation versus what allows stale entries to persist silently. They measure whether in-place patching creates a divergence that the user cannot detect without manual inspection, and they flag scenarios where the local override mechanism collides with the upstream distribution's own version namespace.",
+    "decision_lens": "Every cache interaction is evaluated by: (1) Is the version label on the cache entry still accurate after in-place patching, and what tooling (if any) would detect the divergence? (2) What is the exact trigger for a marketplace resync — time-based, event-based, or user-initiated — and does the patch survive that trigger? (3) Is there a namespace collision between the locally-patched 0.2.13 cache entry and the upstream-published 0.2.14, and who wins?",
+    "review_areas": [
+      "What happens when the marketplace publishes its own v0.2.14 — does Claude Code overwrite the locally-patched 0.2.13 cache entry, merge it, ignore the upstream version, or leave the user with two divergent copies at the same version label",
+      "Whether patching files in-place inside ~/.claude/plugins/cache/interagency-marketplace/interlock/0.2.13/ while keeping plugin.json at 0.2.13 is a supported override pattern or an accident waiting to be wiped — does Claude Code perform content-hash verification on cache entries",
+      "The plan's rationale for skipping the v0.2.16 mirror ('design-note-only') — whether this decision holds if the xfail test exercises code paths that differ between the local cache and the source repo, and whether test runners ever touch the cache directory",
+      "Whether the local cache patch is visible to the user — is there a way to inspect 'what version am I actually running' that reflects the in-place modification rather than the plugin.json version field",
+      "The plan's phrase 'this machine is safe immediately' — what does 'safe' mean when plugin.json still claims 0.2.13, and whether a future session loading interlock from cache would silently revert to the unpatched code if the cache was rebuilt from the published manifest"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "Claude Code performs a background marketplace sync and overwrites the patched 0.2.13 cache entry with the published 0.2.13 artifacts, silently reverting the CF-2 fix and re-exposing the 638-file orphan accumulation bug on this machine",
+        "condition": "Cache entries are refreshed from published manifest on any sync event and the patched files have no content-hash divergence marker"
+      },
+      {
+        "severity": "P1",
+        "scenario": "Upstream publishes its own v0.2.14 with different code than the local patch — Claude Code installs it into ~/.claude/plugins/cache/interagency-marketplace/interlock/0.2.14/ — and the user now has two version directories with different semantics, no indication of which is active, and the local 0.2.13 patch still in place",
+        "condition": "No documented procedure for detecting or resolving namespace collision between local patch and upstream version"
+      },
+      {
+        "severity": "P2",
+        "scenario": "The plan mirrors v0.2.14 and v0.2.15 changes but keeps plugin.json at 0.2.13 — any tooling that reads plugin.json to determine which hooks/tools to load may fail to activate the new functionality, meaning the 'safe immediately' claim is only true for the specific changed files, not for any plugin metadata that gates feature activation",
+        "condition": "plugin.json version field drives feature activation decisions in Claude Code plugin loader"
+      }
+    ],
+    "success_hints": [
+      "Check whether Claude Code's plugin loader uses content hashing, manifest checksums, or version-label-only matching when deciding whether a cache entry is current",
+      "Verify whether the cache directory for a specific version (0.2.13/) is ever automatically deleted or replaced, and on what trigger",
+      "Confirm whether the plan's 'skip mirroring v0.2.16' decision accounts for test runners that may reference cache paths"
+    ],
+    "task_context": "The ship plan proposes mirroring v0.2.14 and v0.2.15 file changes into the local plugin cache (~/.claude/plugins/cache/interagency-marketplace/interlock/0.2.13/) as an immediate stopgap, while keeping plugin.json at 0.2.13. Open question B asks what happens when the marketplace ships its own 0.2.14. This agent evaluates that question and the broader cache divergence semantics — whether in-place patching is safe, detectable, and durable against marketplace sync events.",
+    "anti_overlap": [
+      "Do not review whether version bumps are semantically correct — fd-semver-coordination covers that",
+      "Do not evaluate the git branch or PR mechanics — fd-irreversible-action-discipline covers that",
+      "Do not review test coverage for the changes being patched in — fd-test-coverage-gaps covers that"
+    ]
+  },
+  {
+    "name": "fd-irreversible-action-discipline",
+    "focus": "Repository hygiene and irreversible-action guardrails — PR-against-self semantics in a single-maintainer repo, branch-only-push pattern discipline, and whether the plan's execution mechanics are consistent with Sylveste/CLAUDE.md's ask-before-irreversible rule",
+    "persona": "Apply the perspective of a repository governance lead who has reviewed post-mortems from single-maintainer projects where automation or impatience caused permanent history damage — force pushes that erased work, auto-merges that bypassed review, tags that triggered unintended CI pipelines. They care about whether the stated safeguards (branch-only, no auto-merge, no publish) are enforced by process or merely aspirational, and whether the proposed PR-against-self ceremony provides meaningful protection or false assurance. They flag execution steps that could trigger irreversible side effects through automation, and they scrutinize the delta between 'ask before' and 'confirm before' when irreversible actions are embedded in multi-step sequences.",
+    "decision_lens": "Every execution step is evaluated by: (1) Could this step trigger an irreversible action downstream — through CI, hooks, webhooks, marketplace automation, or cache invalidation — without a separate explicit confirmation? (2) Does the stated safeguard ('push branch only', 'do not merge') rely on human restraint in a flow where automation could bypass it? (3) In a single-maintainer repo, does a PR add genuine review value or only process theater — and if it's theater, is the overhead worth the audit trail?",
+    "review_areas": [
+      "Whether 'push branch only, do not push main, do not auto-merge' is a durable safeguard or a convention that could be violated by a CI pipeline, GitHub Actions default, or branch protection misconfiguration — what is the mechanical enforcement",
+      "Whether the plan's PR-against-self pattern in a single-maintainer repo satisfies Sylveste/CLAUDE.md's ask-before-irreversible requirement for merge, or whether the PR creation itself is the ask and any subsequent merge is implicitly pre-approved",
+      "The plan's phrase 'PR description drafted in chat for sma to review' — at what point in the execution sequence does sma review and approve, and what prevents execution from proceeding past the branch push without that approval",
+      "Whether the 3-commit sequence (one per version) on a single branch is correct, or whether each version should be on its own branch so that v0.2.14 can be shipped and verified before v0.2.15 is opened — the current plan bundles all three into one PR",
+      "Whether any step in the execution mechanics (cache mirror, orphan repair, branch push) triggers a webhook, GitHub Actions pipeline, or marketplace notification that could initiate publication or version indexing without explicit user confirmation"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "A GitHub Actions workflow on the repository auto-merges PRs that pass CI, or auto-publishes to the marketplace on branch push — the plan assumes these behaviors are absent but does not verify, meaning the 'push branch only' constraint could be silently violated",
+        "condition": "No explicit check that the repository lacks auto-merge, auto-publish, or release-on-push workflows before executing the branch push"
+      },
+      {
+        "severity": "P1",
+        "scenario": "The 3-version sequence is bundled into a single PR — if sma reviews and requests changes to v0.2.14, the review also blocks v0.2.15 and v0.2.16, creating coupling between independent versioned changes and making partial acceptance difficult",
+        "condition": "All three version commits are on a single branch submitted as one PR rather than sequential PRs or separate branches"
+      },
+      {
+        "severity": "P2",
+        "scenario": "The orphan repair step (classify-before-delete on 638 elf-revel files) is described in the plan but has no ask-before-irreversible checkpoint between 'enumerate orphans' and 'quarantine or delete' — it may execute as a single uninterrupted sequence without a mid-point approval gate",
+        "condition": "Orphan repair is described as a procedure without an explicit pause-and-confirm checkpoint before the destructive operations begin"
+      }
+    ],
+    "success_hints": [
+      "Check whether the repository has any GitHub Actions workflows that could fire on branch push, and whether they include merge or publish steps",
+      "Verify that the plan includes an explicit human review gate between 'draft PR description' and 'execute merge' rather than treating PR creation as implicit merge approval",
+      "Confirm that each of the three versions has a distinct logical checkpoint where sma can accept v0.2.14 without committing to v0.2.15"
+    ],
+    "task_context": "The ship plan specifies push branch only, do not push main, do not auto-merge, do not publish. Sylveste/CLAUDE.md requires asking before irreversible actions (publish, delete, merge). Open question G asks whether the branch-only-push pattern with PR-against-self is necessary ceremony in a single-maintainer repo. This agent evaluates that question and the broader execution mechanics for irreversibility risk — whether the stated safeguards are mechanically enforced or rely on convention, and whether the 3-version PR bundling creates review coupling problems.",
+    "anti_overlap": [
+      "Do not review whether the version bumps are semantically correct — fd-semver-coordination covers that",
+      "Do not assess the cache mirror durability against marketplace sync — fd-cache-mirror-drift covers that",
+      "Do not evaluate orphan repair classification logic — fd-repair-safety-protocol covers that"
+    ]
+  },
+  {
+    "name": "fd-test-coverage-gaps",
+    "focus": "Test strategy completeness for the 6 proposed tests — what classes of failure are unaddressed, whether chaos/concurrency/upgrade-path tests exist, and whether xfail-as-documentation is an appropriate tradeoff or hides a warning that users need",
+    "persona": "Apply the perspective of a test strategy lead who has audited coverage for distributed systems with shared mutable state. They care not about line coverage but about failure-mode coverage — whether the test suite would catch the bugs that actually occur in production. They distinguish between tests that verify implementation details (unit tests for correct internal behavior), tests that verify integration contracts (what happens when two components interact), and tests that verify survivability under realistic stress (what happens when sessions collide, clocks skew, or state is partially corrupted). They flag missing test classes more than missing individual test cases, and they evaluate xfail decisions by asking whether the xfail communicates the known failure to users who never read test output.",
+    "decision_lens": "Every test is evaluated by: (1) Does it exercise the failure mode that actually produced the bug, or does it verify that the fix works in isolation? (2) Is the xfail annotation sufficient documentation for a user who will be affected by the unfixed behavior, or does the fix require a runtime signal as well? (3) What is the weakest link in the test suite — the scenario that would produce a real-world incident but would still pass all proposed tests?",
+    "review_areas": [
+      "Whether tests 1-5 collectively verify the interaction between the fixed components — a session-start atomic init test plus a stop.sh path-reconstruction test plus a sweeper test do not verify that the three work correctly together when a session crashes mid-init",
+      "Whether there is a concurrent-session test (two sessions racing on the same repo, not just a single-session xfail for the data-loss case) — CF-5's TOCTOU and CF-1's pre-commit reconciliation both require concurrent execution to reproduce",
+      "Whether there is an upgrade-path test — what happens when the sweeper runs on a repo that accumulated orphans under v0.2.13's lifecycle, as opposed to a clean repo that never had orphan accumulation",
+      "The xfail decision for test_concurrent_commit_loss: whether xfail is adequate documentation for a P0 data-loss bug, or whether it should also gate a runtime warning that fires on every concurrent commit attempt until the fix ships in a future version",
+      "Whether the structural tests (test_structure.py) are sufficient regression guards for the file-modification surface area of v0.2.14 — the plan adds a new file (interlock-orphan-sweep) and a new helper (session_index_is_empty) not covered by existing structural assertions"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P1",
+        "scenario": "No concurrent-session integration test is proposed — the two tests most likely to reproduce CF-1 (pre-commit reconciliation data loss) and CF-5 (TOCTOU init guard) both require multiple concurrent processes, but the 6 proposed tests are all single-session",
+        "condition": "All 6 proposed tests can be run in a single process; no test spins up two competing session processes against the same repo"
+      },
+      {
+        "severity": "P1",
+        "scenario": "The xfail test (test_concurrent_commit_loss_xfail) is the only signal that CF-1 is an open data-loss bug — if a user never inspects test output and v0.2.15/v0.2.16 are delayed, the xfail provides zero protection for that user's data",
+        "condition": "No runtime warning is shipped alongside the xfail to warn users who experience concurrent commits before the fix"
+      },
+      {
+        "severity": "P2",
+        "scenario": "The upgrade-path scenario — running the new sweeper on a repo that accumulated 638 orphans under v0.2.13 — is tested implicitly in test_orphan_sweeper_classifies_before_delete using synthetic fixtures, not against real accumulated orphans with edge-case filenames or timestamps",
+        "condition": "Sweeper test uses synthetic orphan files rather than a representative sample of the 638 real orphan files from elf-revel"
+      }
+    ],
+    "success_hints": [
+      "Check whether the proposed test for CF-5 (TOCTOU init guard) can actually reproduce the race without concurrent processes — a single-threaded test of 'write to tmp then rename' does not exercise the race condition",
+      "Verify whether the xfail annotation includes a link to the GitHub issue tracking the fix, so the test provides actionable status information when it unexpectedly passes",
+      "Confirm whether test_orphan_sweeper_classifies_before_delete covers the case where the orphan file has a staging area with entries that differ from HEAD but the working tree is clean — the classify decision is subtle in that state"
+    ],
+    "task_context": "The ship plan proposes 6 tests (5 for v0.2.14, 1 xfail for v0.2.16) and requires the existing structural tests to continue passing. Open question E asks what is missing from the test strategy. Open question C asks whether the xfail design is appropriate. This agent evaluates both through the test strategy lens — what failure mode classes are unaddressed, whether concurrency and upgrade-path tests are needed, and whether xfail provides adequate coverage documentation for a P0 data-loss bug.",
+    "anti_overlap": [
+      "Do not review the semver implications of shipping an xfail — fd-semver-coordination covers whether the v0.2.16 version bump is justified",
+      "Do not assess the orphan repair procedure for real files — fd-repair-safety-protocol covers that",
+      "Do not evaluate the cache mirror test coverage — fd-cache-mirror-drift covers whether the patched cache is verifiable"
+    ]
+  },
+  {
+    "name": "fd-repair-safety-protocol",
+    "focus": "Migration and repair safety for using the new classify-before-delete sweeper on 638 existing untested orphan files — whether conservative all-quarantine is safer than classified-delete, what bake-time discipline looks like, and how to handle the coupling between fixing the cause and repairing the damage",
+    "persona": "Apply the perspective of a data recovery engineer who has executed forensic triage on partially corrupted repositories and production databases. They care about the chain-of-custody discipline for potentially valuable data — the principle that you cannot undo a delete but you can always defer a delete. They measure whether the proposed protocol distinguishes between 'safe to delete' and 'safe enough to delete' — and whether the confidence level of the classification algorithm has been validated before being applied to a 638-file corpus. They flag scenarios where the repair procedure and the bug fix are coupled in a way that makes it unsafe to run the repair before the fix is fully deployed.",
+    "decision_lens": "Every repair step is evaluated by: (1) What is the worst-case outcome if the classifier incorrectly classifies a non-empty orphan as empty and deletes it — does the user lose staged work with no recovery path? (2) Has the classifier been validated on a representative sample before being applied to the full corpus? (3) Is the repair coupled to the fix deployment in a way that creates a race — could the repair run on a system that is still accumulating new orphans under the old buggy lifecycle?",
+    "review_areas": [
+      "Whether the classify-before-delete protocol has been validated against any real orphan files before being applied to the 638-file elf-revel corpus — the sweeper is a new script (proposed in v0.2.14), and the plan proposes running it on existing orphans before v0.2.14 is even committed",
+      "Whether all-quarantine (move every orphan to .abandoned regardless of content) is a safer first pass than classified-delete, given that the sweeper is untested and quarantine is reversible while delete is not — and what the disk cost of quarantining 638 files would be",
+      "The coupling between repair and fix: the plan repairs elf-revel's 638 orphans while CF-2 (the cause of those orphans) is still live until v0.2.14 is deployed — if elf-revel sessions run between repair and deployment, new orphans will accumulate before the sweeper has even been verified",
+      "The git reset --mixed HEAD step in the repair procedure — whether this is safe to run on a repository with active sessions, what it does to any legitimately staged work, and whether it should be gated on verifying no Claude Code session is currently active on that repo",
+      "Whether the repair should run per-repo in isolation with a verification step between repos, or can be batched across mediumsetting + elf-revel + garden-salon + Sylveste + Lowbeer — the 638-file elf-revel case has very different risk profile from the single-orphan cases"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "The sweeper's classification logic has an off-by-one or encoding error that causes non-empty orphan files (containing staged-but-uncommitted work) to be classified as empty and deleted — the only copy of the user's staged work is gone with no recovery path",
+        "condition": "Sweeper is applied to real orphans before any validation run on known-content test fixtures that confirm the empty/non-empty classification is correct"
+      },
+      {
+        "severity": "P1",
+        "scenario": "The plan repairs elf-revel's orphans (git reset --mixed HEAD, delete empties) while CF-2 is still live — between the repair and the v0.2.14 deployment, new sessions on elf-revel accumulate new orphans, meaning the repair partially overlaps with ongoing accumulation and the post-repair state is not clean",
+        "condition": "Repair is executed on a repo that is still subject to the bug being fixed, with no lockout of sessions during the repair window"
+      },
+      {
+        "severity": "P1",
+        "scenario": "git reset --mixed HEAD is run on elf-revel while legitimate staged changes exist (user staged work in a live session) — the reset discards all staged changes in the canonical index, not just the orphan indexes",
+        "condition": "Repair procedure does not verify that no active sessions hold legitimate staged state before running git reset"
+      }
+    ],
+    "success_hints": [
+      "Check whether the plan includes a dry-run pass (enumerate and classify without deleting or quarantining) before the destructive repair, with output reviewed by sma",
+      "Verify whether the repair procedure includes a per-repo checkpoint where sma confirms the dry-run output before proceeding to the destructive step",
+      "Confirm whether the repair is sequenced after v0.2.14 is deployed (so the bug is no longer accumulating new orphans) or before (racing against ongoing accumulation)"
+    ],
+    "task_context": "The ship plan proposes using the new classify-before-delete sweeper (a v0.2.14 addition) to repair existing orphan files in mediumsetting (2 files), elf-revel (638 files), garden-salon (1), Sylveste (5), and Lowbeer (1). The sweeper is new and untested. Open question D asks about the coupling between running the untested sweeper on 638 files before bake time. This agent evaluates that question — whether the protocol is conservative enough, whether the repair should be sequenced before or after fix deployment, and what bake-time discipline looks like for a destructive repair of potentially-valuable orphan files.",
+    "anti_overlap": [
+      "Do not review the sweeper's test coverage in the proposed test suite — fd-test-coverage-gaps covers that",
+      "Do not evaluate whether the version bump for v0.2.14 is correctly scoped — fd-semver-coordination covers that",
+      "Do not assess the irreversible-action discipline of the PR/merge mechanics — fd-irreversible-action-discipline covers that"
+    ]
+  }
+]
