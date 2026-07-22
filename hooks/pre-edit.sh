@@ -13,6 +13,24 @@ INPUT=$(cat)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
+# Parse an RFC3339/RFC3339Nano UTC timestamp (e.g. intermute expires_at) to
+# epoch seconds, portably. GNU `date -d` first; BSD `date -j -u -f` fallback
+# (fractional seconds and Z/+00:00 suffixes normalized). Echoes empty on
+# failure (Sylveste-a3a).
+_preedit_iso_to_epoch() {
+    local ts="${1:-}"
+    [[ -z "$ts" ]] && { echo ""; return 0; }
+    local epoch
+    epoch=$(date -d "$ts" +%s 2>/dev/null) || epoch=""
+    if [[ -z "$epoch" ]]; then
+        local norm="${ts%%.*}"
+        norm="${norm%+00:00}"
+        norm="${norm%Z}"
+        epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "$norm" +%s 2>/dev/null) || epoch=""
+    fi
+    echo "$epoch"
+}
+
 # Skip if not in coordination mode
 [[ -n "${INTERMUTE_AGENT_ID:-}" ]] || exit 0
 
@@ -219,7 +237,7 @@ if [[ -n "$CONFLICT" ]]; then
     # Format expiry for human readability
     EXPIRES_DISPLAY="$EXPIRES"
     if [[ -n "$EXPIRES" ]] && command -v date &>/dev/null; then
-        EXPIRES_EPOCH=$(date -d "$EXPIRES" +%s 2>/dev/null || echo "")
+        EXPIRES_EPOCH=$(_preedit_iso_to_epoch "$EXPIRES")
         if [[ -n "$EXPIRES_EPOCH" ]]; then
             NOW_EPOCH=$(date +%s)
             REMAINING_MIN=$(( (EXPIRES_EPOCH - NOW_EPOCH) / 60 ))
