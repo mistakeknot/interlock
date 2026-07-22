@@ -1,0 +1,53 @@
+{
+  "name": "interlock",
+  "version": "0.2.17",
+  "description": "MCP server for intermute file reservation and agent coordination. 12 tools: reserve, release, conflict check, messaging, agent listing, negotiation, escalation. Companion plugin for Clavain.",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "file-reservation",
+    "agent-coordination",
+    "intermute",
+    "multi-agent",
+    "conflict-prevention"
+  ],
+  "author": "mistakeknot",
+  "interface": {
+    "displayName": "interlock",
+    "shortDescription": "MCP server for intermute file reservation and agent coordination. 12 tools: reserve, release, conflict check, messagi..."
+  },
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "mcpServers": {
+    "interlock": {
+      "command": "./bin/launch-mcp.sh",
+      "env": {
+        "INTERMUTE_SOCKET": "/var/run/intermute.sock",
+        "INTERMUTE_URL": "http://127.0.0.1:7338"
+      }
+    }
+  },
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "matcher": "startup|resume",
+      "command": "${KIMI_PLUGIN_ROOT}/hooks/session-start.sh"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Edit|Write",
+      "command": "${KIMI_PLUGIN_ROOT}/hooks/pre-edit.sh",
+      "timeout": 5
+    },
+    {
+      "event": "Stop",
+      "command": "${KIMI_PLUGIN_ROOT}/hooks/stop.sh",
+      "timeout": 10
+    },
+    {
+      "event": "SubagentStop",
+      "command": "${KIMI_PLUGIN_ROOT}/hooks/subagent-stop.sh",
+      "timeout": 5
+    }
+  ]
+}
