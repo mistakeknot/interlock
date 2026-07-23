@@ -160,3 +160,12 @@ starts as `additionalContext` (advisory) before graduating to `decision:block`.
   fails open (default `3`).
 - Join flag `~/.config/clavain/intermute-joined` — master on/off for all
   coordination.
+
+## Relationship to worktree isolation
+
+Interlock is the **coordination** layer for agents that deliberately *share* a
+working tree; native Claude Code worktrees are the **isolation** layer for agents
+that must not touch each other's files. They are complementary, not alternatives:
+use worktrees to isolate parallel edits, use interlock reservations when a shared
+tree is intentional. Interlock stopped creating its own worktrees at 0.2.16 (§1).
+See the canonical [worktree-first coordination contract](../../../docs/guide-worktree-first-coordination.md).
