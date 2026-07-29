@@ -4,9 +4,7 @@ tests/.venv/
 tests/.pytest_cache/
 tests/structural/__pycache__/
 .clavain/
+.clavain/**/*.db
 
 # Local publish-approval marker (never committed)
 .publish-approved
-
-# Machine-local interspect telemetry (SQLite); git-autosync does 'git add -A'
-.clavain/interspect/
