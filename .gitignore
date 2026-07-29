@@ -7,3 +7,6 @@ tests/structural/__pycache__/
 
 # Local publish-approval marker (never committed)
 .publish-approved
+
+# Machine-local interspect telemetry (SQLite); git-autosync does 'git add -A'
+.clavain/interspect/
