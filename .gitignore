@@ -5,6 +5,8 @@ tests/.pytest_cache/
 tests/structural/__pycache__/
 .clavain/
 .clavain/**/*.db
+.clavain/**/*.db-shm
+.clavain/**/*.db-wal
 
 # Local publish-approval marker (never committed)
 .publish-approved
