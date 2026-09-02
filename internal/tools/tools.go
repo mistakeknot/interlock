@@ -494,9 +494,11 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			}
 
 			holderID := ""
+			reservationID := ""
 			for _, conflict := range conflicts {
 				if conflict.AgentID == agentName || conflict.HeldBy == agentName {
 					holderID = conflict.AgentID
+					reservationID = conflict.ReservationID
 					break
 				}
 			}
@@ -508,13 +510,20 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 			if threadID == "" {
 				return mcputil.WrapError(errors.New("failed to generate negotiation thread ID"))
 			}
+			// The request pins the exact reservation it is about. Escalation
+			// later releases that reservation and nothing else, so a holder
+			// that released and re-reserved for new work is never hit by a
+			// negotiation it never saw.
 			bodyBytes, err := json.Marshal(map[string]any{
-				"type":      "release-request",
-				"file":      file,
-				"reason":    reason,
-				"requester": c.AgentName(),
-				"urgency":   urgency,
-				"thread_id": threadID,
+				"type":           "release-request",
+				"file":           file,
+				"reason":         reason,
+				"requester":      c.AgentName(),
+				"requester_id":   c.AgentID(),
+				"holder":         holderID,
+				"reservation_id": reservationID,
+				"urgency":        urgency,
+				"thread_id":      threadID,
 			})
 			if err != nil {
 				return mcputil.WrapError(fmt.Errorf("marshal release request: %w", err))
@@ -651,6 +660,9 @@ func respondToRelease(c *client.Client) server.ServerTool {
 			if action != "release" && action != "defer" {
 				return mcputil.ValidationError("action must be 'release' or 'defer'")
 			}
+			if err := c.VerifyNegotiationParty(ctx, threadID, client.PartyHolder); err != nil {
+				return toToolError(err), nil
+			}
 
 			if action == "release" {
 				released, err := c.ReleaseByPattern(ctx, c.AgentID(), file)
@@ -769,21 +781,28 @@ func forceReleaseNegotiation(c *client.Client) server.ServerTool {
 				})
 			}
 
-			status := "force_released"
-			if result.Released == 0 {
-				status = "already_released"
+			if result.Released > 0 {
+				emitSignal("escalation", fmt.Sprintf("force-released %s from %s (thread %s, released=%d)", file, result.HolderID, threadID, result.Released))
 			}
 
-			emitSignal("escalation", fmt.Sprintf("force-released %s from %s (thread %s, released=%d)", file, result.HolderID, threadID, result.Released))
-
-			return jsonResult(map[string]any{
-				"status":    status,
+			out := map[string]any{
+				"status":    result.Status,
 				"thread_id": threadID,
 				"file":      file,
 				"holder":    result.HolderID,
 				"released":  result.Released,
 				"reason":    reason,
-			})
+			}
+			if result.ReservationID != "" {
+				out["reservation_id"] = result.ReservationID
+			}
+			if result.ByPattern {
+				out["released_by_pattern"] = true
+			}
+			if result.Status == client.ForceStatusReservationChanged {
+				out["hint"] = "The reservation this negotiation was about is no longer held; nothing was released. Run check_conflicts again and start a new negotiation if the file is still taken."
+			}
+			return jsonResult(out)
 		},
 	}
 }

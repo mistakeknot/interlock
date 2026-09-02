@@ -987,9 +987,101 @@ func (c *Client) CheckExpiredNegotiations(ctx context.Context) ([]NegotiationTim
 }
 
 // ForceReleaseResult captures the outcome of a forced escalation release.
+// Force-release outcomes.
+const (
+	ForceStatusReleased           = "force_released"      // the pinned (or pattern-matched) reservation was released
+	ForceStatusAlreadyReleased    = "already_released"    // nothing active matched; the file was already free
+	ForceStatusReservationChanged = "reservation_changed" // the pinned reservation is gone or held by someone else; nothing released
+)
+
 type ForceReleaseResult struct {
-	HolderID string `json:"holder_id"`
-	Released int    `json:"released"`
+	HolderID      string `json:"holder_id"`
+	Released      int    `json:"released"`
+	Status        string `json:"status"`
+	ReservationID string `json:"reservation_id,omitempty"`
+	// ByPattern is true when the thread predates reservation pinning and the
+	// release fell back to matching the holder's current reservations by
+	// pattern — the behavior pinning exists to avoid.
+	ByPattern bool `json:"released_by_pattern,omitempty"`
+}
+
+// NegotiationParty names which side of a negotiation the caller must be.
+type NegotiationParty int
+
+const (
+	PartyRequester NegotiationParty = iota
+	PartyHolder
+)
+
+// VerifyNegotiationParty checks that this client is the requester or the
+// holder recorded on the thread's release-request. A negotiation is a
+// two-party exchange; anyone who learns a thread id must not be able to
+// answer for the holder or escalate on the requester's behalf.
+func (c *Client) VerifyNegotiationParty(ctx context.Context, threadID string, party NegotiationParty) error {
+	messages, err := c.FetchThread(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("fetch thread %q: %w", threadID, err)
+	}
+	req, ok := findReleaseRequest(messages)
+	if !ok {
+		return fmt.Errorf("thread %q has no release-request", threadID)
+	}
+	switch party {
+	case PartyRequester:
+		if req.requesterID != "" && req.requesterID != c.AgentID() {
+			return fmt.Errorf("only the requester (%s) may escalate thread %q", req.requesterID, threadID)
+		}
+	case PartyHolder:
+		if req.holderID != "" && req.holderID != c.AgentID() {
+			return fmt.Errorf("thread %q was addressed to %s, not to this agent", threadID, req.holderID)
+		}
+	}
+	return nil
+}
+
+// releaseRequest is the negotiation state recoverable from a thread.
+type releaseRequest struct {
+	holderID      string
+	requesterID   string
+	reservationID string
+	urgency       string
+	requestTime   time.Time
+}
+
+// findReleaseRequest locates the original release-request in a thread.
+// Holder and requester fall back to the message envelope for threads
+// written before the payload carried them.
+func findReleaseRequest(messages []Message) (releaseRequest, bool) {
+	for _, msg := range messages {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(msg.Body), &payload); err != nil {
+			continue
+		}
+		if stringOr(payload["type"], "") != "release-request" {
+			continue
+		}
+		req := releaseRequest{
+			holderID:      stringOr(payload["holder"], ""),
+			requesterID:   stringOr(payload["requester_id"], ""),
+			reservationID: stringOr(payload["reservation_id"], ""),
+			urgency:       stringOr(payload["urgency"], "normal"),
+		}
+		if req.holderID == "" && len(msg.To) > 0 {
+			req.holderID = msg.To[0]
+		}
+		if req.requesterID == "" {
+			req.requesterID = msg.From
+		}
+		ts := msg.CreatedAt
+		if ts == "" {
+			ts = msg.Timestamp
+		}
+		if ts != "" {
+			req.requestTime, _ = parseMessageTime(ts)
+		}
+		return req, true
+	}
+	return releaseRequest{}, false
 }
 
 // ForceReleaseNegotiation validates that a negotiation has timed out and
@@ -1008,36 +1100,13 @@ func (c *Client) ForceReleaseNegotiation(ctx context.Context, threadID, file, re
 		return nil, fmt.Errorf("thread %q already has a release-ack", threadID)
 	}
 
-	// Find the original release-request to extract urgency and holder.
-	var holderID, urgency string
-	var requestTime time.Time
-	for _, msg := range messages {
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(msg.Body), &payload); err != nil {
-			continue
-		}
-		if stringOr(payload["type"], "") != "release-request" {
-			continue
-		}
-		holderID = stringOr(payload["holder"], "")
-		if holderID == "" {
-			// The request was sent TO the holder — use the message recipient.
-			if len(msg.To) > 0 {
-				holderID = msg.To[0]
-			}
-		}
-		urgency = stringOr(payload["urgency"], "normal")
-		ts := msg.CreatedAt
-		if ts == "" {
-			ts = msg.Timestamp
-		}
-		if ts != "" {
-			requestTime, _ = parseMessageTime(ts)
-		}
-		break
-	}
-	if holderID == "" {
+	req, ok := findReleaseRequest(messages)
+	if !ok || req.holderID == "" {
 		return nil, fmt.Errorf("thread %q has no release-request with identifiable holder", threadID)
+	}
+	holderID := req.holderID
+	if req.requesterID != "" && req.requesterID != c.AgentID() {
+		return nil, fmt.Errorf("only the requester (%s) may escalate thread %q", req.requesterID, threadID)
 	}
 
 	// Liveness check: if the holder agent is dead (no heartbeat within
@@ -1058,19 +1127,52 @@ func (c *Client) ForceReleaseNegotiation(ctx context.Context, threadID, file, re
 	// normal timeout logic — don't block on the failure.
 
 	timeoutMinutes := NormalTimeoutMinutes
-	if urgency == "urgent" {
+	if req.urgency == "urgent" {
 		timeoutMinutes = UrgentTimeoutMinutes
 	}
-	if !holderDead && !requestTime.IsZero() && time.Since(requestTime) < time.Duration(timeoutMinutes)*time.Minute {
-		return nil, fmt.Errorf("thread %q has not exceeded %d-minute %s timeout", threadID, timeoutMinutes, urgency)
+	if !holderDead && !req.requestTime.IsZero() && time.Since(req.requestTime) < time.Duration(timeoutMinutes)*time.Minute {
+		return nil, fmt.Errorf("thread %q has not exceeded %d-minute %s timeout", threadID, timeoutMinutes, req.urgency)
 	}
 
-	released, err := c.ReleaseByPattern(ctx, holderID, file)
+	// Threads from clients that predate pinning carry no reservation id;
+	// keep the pattern path for them but say so in the result.
+	if req.reservationID == "" {
+		released, err := c.ReleaseByPattern(ctx, holderID, file)
+		if err != nil {
+			return nil, fmt.Errorf("release by pattern: %w", err)
+		}
+		status := ForceStatusReleased
+		if released == 0 {
+			status = ForceStatusAlreadyReleased
+		}
+		return &ForceReleaseResult{HolderID: holderID, Released: released, Status: status, ByPattern: true}, nil
+	}
+
+	// Pinned path: release exactly the reservation negotiated for, and only
+	// if it is still active and still the holder's.
+	reservations, err := c.ListReservations(ctx, map[string]string{
+		"agent":   holderID,
+		"project": c.project,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("release by pattern: %w", err)
+		return nil, fmt.Errorf("list reservations for %q: %w", holderID, err)
 	}
-
-	return &ForceReleaseResult{HolderID: holderID, Released: released}, nil
+	result := &ForceReleaseResult{HolderID: holderID, ReservationID: req.reservationID, Status: ForceStatusReservationChanged}
+	for _, r := range reservations {
+		if r.ID != req.reservationID || !r.IsActive || r.AgentID != holderID {
+			continue
+		}
+		if err := c.DeleteReservation(ctx, r.ID); err != nil {
+			if isNotFound(err) {
+				return result, nil // released between our list and our delete
+			}
+			return nil, fmt.Errorf("delete reservation %q: %w", r.ID, err)
+		}
+		result.Released = 1
+		result.Status = ForceStatusReleased
+		return result, nil
+	}
+	return result, nil
 }
 
 // --- Internal ---

@@ -733,3 +733,151 @@ func TestForceReleaseNegotiation_ZeroReleased(t *testing.T) {
 		t.Fatalf("HolderID = %q, want holder-1", result.HolderID)
 	}
 }
+
+func makePinnedThread(holderID, requesterID, reservationID string) []map[string]any {
+	expired := time.Now().Add(-20 * time.Minute).Format(time.RFC3339)
+	return []map[string]any{
+		{
+			"id":         "m1",
+			"from":       requesterID,
+			"to":         []string{holderID},
+			"body":       fmt.Sprintf(`{"type":"release-request","file":"src/**","urgency":"normal","thread_id":"t1","holder":"%s","requester_id":"%s","reservation_id":"%s"}`, holderID, requesterID, reservationID),
+			"subject":    "release-request",
+			"thread_id":  "t1",
+			"created_at": expired,
+		},
+	}
+}
+
+func TestForceReleaseNegotiation_PinnedReservationStillHeld(t *testing.T) {
+	t.Parallel()
+
+	var deleted []string
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
+			return jsonResponse(http.StatusOK, map[string]any{"messages": makePinnedThread("holder-1", "requester-1", "r1")}), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reservations":
+			return jsonResponse(http.StatusOK, map[string]any{"reservations": []map[string]any{
+				{"id": "r1", "agent_id": "holder-1", "path_pattern": "src/**", "is_active": true},
+				{"id": "r9", "agent_id": "holder-1", "path_pattern": "src/pkg/**", "is_active": true},
+			}}), nil
+		case r.Method == http.MethodDelete:
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/api/reservations/"))
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		default:
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		}
+	})
+
+	res, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/**", "timed out")
+	if err != nil {
+		t.Fatalf("ForceReleaseNegotiation() error = %v", err)
+	}
+	if res.Status != ForceStatusReleased || res.Released != 1 || res.ReservationID != "r1" || res.ByPattern {
+		t.Fatalf("result = %+v, want pinned r1 released", res)
+	}
+	if len(deleted) != 1 || deleted[0] != "r1" {
+		t.Fatalf("deleted = %v, want exactly [r1] (the overlapping r9 must survive)", deleted)
+	}
+}
+
+func TestForceReleaseNegotiation_PinnedReservationChanged(t *testing.T) {
+	t.Parallel()
+
+	deleteCalls := 0
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
+			return jsonResponse(http.StatusOK, map[string]any{"messages": makePinnedThread("holder-1", "requester-1", "r1")}), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reservations":
+			// r1 is gone; the holder re-reserved a sub-pattern for new work.
+			return jsonResponse(http.StatusOK, map[string]any{"reservations": []map[string]any{
+				{"id": "r2", "agent_id": "holder-1", "path_pattern": "src/pkg/**", "is_active": true},
+			}}), nil
+		case r.Method == http.MethodDelete:
+			deleteCalls++
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		default:
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		}
+	})
+
+	res, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/**", "timed out")
+	if err != nil {
+		t.Fatalf("ForceReleaseNegotiation() error = %v", err)
+	}
+	if res.Status != ForceStatusReservationChanged || res.Released != 0 {
+		t.Fatalf("result = %+v, want reservation_changed with nothing released", res)
+	}
+	if deleteCalls != 0 {
+		t.Fatalf("deleteCalls = %d, want 0: the holder's new reservation must not be touched", deleteCalls)
+	}
+}
+
+func TestForceReleaseNegotiation_CallerNotRequester(t *testing.T) {
+	t.Parallel()
+
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("bystander"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, map[string]any{"messages": makePinnedThread("holder-1", "requester-1", "r1")}), nil
+	})
+
+	_, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/**", "not my thread")
+	if err == nil || !strings.Contains(err.Error(), "only the requester") {
+		t.Fatalf("expected participant error, got %v", err)
+	}
+}
+
+func TestForceReleaseNegotiation_LegacyThreadFallsBackToPattern(t *testing.T) {
+	t.Parallel()
+
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("requester-1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
+			return jsonResponse(http.StatusOK, map[string]any{"messages": makeExpiredThread("holder-1")}), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/api/reservations":
+			return jsonResponse(http.StatusOK, map[string]any{"reservations": []map[string]any{
+				{"id": "r1", "agent_id": "holder-1", "path_pattern": "src/router.go", "is_active": true},
+			}}), nil
+		default:
+			return jsonResponse(http.StatusOK, map[string]any{}), nil
+		}
+	})
+
+	res, err := c.ForceReleaseNegotiation(context.Background(), "t1", "src/router.go", "old client")
+	if err != nil {
+		t.Fatalf("ForceReleaseNegotiation() error = %v", err)
+	}
+	if !res.ByPattern || res.Status != ForceStatusReleased || res.Released != 1 {
+		t.Fatalf("result = %+v, want pattern fallback flagged", res)
+	}
+}
+
+func TestVerifyNegotiationParty(t *testing.T) {
+	t.Parallel()
+
+	thread := map[string]any{"messages": makePinnedThread("holder-1", "requester-1", "r1")}
+	newClient := func(id string) *Client {
+		c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID(id), WithProject("p1"))
+		c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, thread), nil
+		})
+		return c
+	}
+	if err := newClient("holder-1").VerifyNegotiationParty(context.Background(), "t1", PartyHolder); err != nil {
+		t.Fatalf("holder should pass: %v", err)
+	}
+	if err := newClient("requester-1").VerifyNegotiationParty(context.Background(), "t1", PartyRequester); err != nil {
+		t.Fatalf("requester should pass: %v", err)
+	}
+	if err := newClient("bystander").VerifyNegotiationParty(context.Background(), "t1", PartyHolder); err == nil {
+		t.Fatal("bystander must not respond as holder")
+	}
+	if err := newClient("holder-1").VerifyNegotiationParty(context.Background(), "t1", PartyRequester); err == nil {
+		t.Fatal("holder must not escalate as requester")
+	}
+}
