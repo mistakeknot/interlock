@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Shared utilities for interlock hooks.
 
-JOIN_FLAG="${HOME}/.config/clavain/intermute-joined"
+JOIN_FLAG="${INTERLOCK_JOIN_FLAG:-${HOME}/.config/interlock/joined}"
+LEGACY_JOIN_FLAG="${HOME}/.config/clavain/intermute-joined"
 
 # is_joined returns 0 if the user has opted into coordination.
 is_joined() {
-    [[ -f "$JOIN_FLAG" ]]
+    [[ -f "$JOIN_FLAG" || -f "$LEGACY_JOIN_FLAG" ]]
 }
 
 # intermute_url returns the base URL for intermute.

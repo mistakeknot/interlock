@@ -8,7 +8,7 @@ When two agents try to edit the same file simultaneously, you get a mess. interl
 
 The workflow: before editing a file, an agent reserves it. If another agent already holds the reservation, interlock offers a negotiated release protocol: the requesting agent sends a `negotiate_release` with urgency and optional blocking wait; the holding agent responds with either a release or a deferral with ETA. This is cooperative, not preemptive.
 
-A git pre-commit hook provides mandatory enforcement: if you try to commit a file that's reserved by another agent, the commit is blocked. The PreToolUse:Edit hook is advisory (warns but doesn't block) so agents can still make emergency edits.
+The pre-edit hook (`PreToolUse:Edit`) blocks an edit to a file another agent holds exclusively. It downgrades to a warning when a tier-2 region check finds no overlap between the two edits, or when intermute is unreachable — coordination fails open, not closed. The git pre-commit hook is the backstop: it blocks a commit that touches a file still reserved by another agent, so a bypassed or missed pre-edit warning can't sneak a conflicting change through.
 
 ## Installation
 
@@ -24,7 +24,7 @@ Then install the plugin:
 /plugin install interlock
 ```
 
-Requires the intermute service running (the Go coordination backend).
+Requires intermute; see [docs/install.md](docs/install.md) for the standalone path (any MCP client, no Claude Code plugin) — `go install github.com/mistakeknot/intermute/cmd/intermute@latest && intermute serve`.
 
 ## Usage
 
@@ -119,5 +119,5 @@ Contact policy:
 ## Design decisions
 
 - Go binary for MCP server, bash for hooks
-- Join-flag gating: all hooks check `~/.config/clavain/intermute-joined` before running
+- Join-flag gating: all hooks check `~/.config/interlock/joined` before running
 - `INTERLOCK_AUTO_RELEASE=1` enables advisory release-request notifications in the pre-edit hook

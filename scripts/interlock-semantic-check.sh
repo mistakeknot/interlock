@@ -27,7 +27,7 @@
 #   INTERLOCK_SEMANTIC_ENABLE   master switch (default 0 = off / shadow only)
 #   INTERLOCK_SEMANTIC_LOW      low band edge (default 0.70)
 #   INTERLOCK_SEMANTIC_HIGH     high band edge (default 0.90)
-#   INTERLOCK_INTERSEARCH_DIR   path to intersearch repo (default ~/projects/Sylveste/interverse/intersearch)
+#   INTERLOCK_INTERSEARCH_DIR   path to intersearch repo; unset = semantic check disabled
 #   INTERLOCK_SEMANTIC_TIMEOUT  seconds before giving up (default 3)
 set -uo pipefail
 trap 'echo unknown; exit 0' ERR
@@ -42,7 +42,7 @@ fi
 
 LOW="${INTERLOCK_SEMANTIC_LOW:-0.70}"
 HIGH="${INTERLOCK_SEMANTIC_HIGH:-0.90}"
-ISDIR="${INTERLOCK_INTERSEARCH_DIR:-${HOME}/projects/Sylveste/interverse/intersearch}"
+ISDIR="${INTERLOCK_INTERSEARCH_DIR:-}"
 TIMEOUT="${INTERLOCK_SEMANTIC_TIMEOUT:-3}"
 
 # Need intersearch + uv present, else fail-open.

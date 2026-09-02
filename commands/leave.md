@@ -9,7 +9,7 @@ Leave multi-agent file coordination.
 
 1. **Check if currently joined:**
    ```bash
-   if [ ! -f ~/.config/clavain/intermute-joined ]; then
+   if [ ! -f ~/.config/interlock/joined ]; then
        echo "Not currently joined. Nothing to do."
    fi
    ```
@@ -19,8 +19,8 @@ Leave multi-agent file coordination.
 
 3. **Remove flag files:**
    ```bash
-   rm -f ~/.config/clavain/intermute-joined
-   rm -f ~/.config/clavain/intermute-agent-name
+   rm -f ~/.config/interlock/joined
+   rm -f ~/.config/interlock/agent-name
    rm -f /tmp/interlock-agent-${CLAUDE_SESSION_ID}.json
    rm -f /tmp/interlock-connected-${CLAUDE_SESSION_ID}
    ```

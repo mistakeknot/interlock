@@ -3,7 +3,7 @@
 ## Canonical References
 1. `CLAUDE.md` — implementation details, architecture, testing, and release workflow.
 
-MCP server for intermute-backed file reservation and agent coordination. Companion plugin for Clavain.
+MCP server for intermute-backed file reservation and agent coordination. Works standalone with any MCP client (see `docs/install.md`), and ships as a Claude Code plugin.
 
 ## Quick Reference
 

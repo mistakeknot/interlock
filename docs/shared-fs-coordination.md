@@ -155,11 +155,10 @@ starts as `additionalContext` (advisory) before graduating to `decision:block`.
 - `INTERLOCK_SEMANTIC_LOW` / `INTERLOCK_SEMANTIC_HIGH` — hysteresis band edges
   (defaults `0.70` / `0.90`).
 - `INTERLOCK_INTERSEARCH_DIR` — path to the intersearch repo providing the
-  embedding model (default `~/projects/Sylveste/interverse/intersearch`).
+  embedding model; unset disables the semantic check (fails open to `unknown`).
 - `INTERLOCK_SEMANTIC_TIMEOUT` — seconds before the semantic check gives up and
   fails open (default `3`).
-- Join flag `~/.config/clavain/intermute-joined` — master on/off for all
-  coordination.
+- Join flag `~/.config/interlock/joined` — master on/off for all coordination.
 
 ## Relationship to worktree isolation
 

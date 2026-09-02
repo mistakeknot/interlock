@@ -15,8 +15,9 @@ is_joined || exit 0
 SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null) || SESSION_ID=""
 [[ -n "$SESSION_ID" ]] || exit 0
 
-# NOTE: CLAUDE_SESSION_ID is written by Clavain's session-start.sh (canonical writer).
-# Do NOT duplicate here — both hooks run async, creating a race condition (iv-erb1).
+# NOTE: CLAUDE_SESSION_ID is written by the host's session-start hook when present
+# (canonical writer). Do NOT duplicate here — both hooks run async, creating a race
+# condition (iv-erb1).
 
 # --- Shared-filesystem coordination model (interlock 0.2.16) ---
 # Interlock no longer creates a per-session git worktree. Each session created an

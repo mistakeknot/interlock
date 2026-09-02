@@ -12,7 +12,7 @@ Register this agent for multi-agent file coordination via intermute.
    - Try tmux pane title: `tmux display-message -p '#T' 2>/dev/null`
    - Fallback: `claude-${CLAUDE_SESSION_ID:0:8}`
 
-2. **Ensure config directory:** `mkdir -p ~/.config/clavain`
+2. **Ensure config directory:** `mkdir -p ~/.config/interlock`
 
 3. **Check intermute health.** Try Unix socket first, then TCP:
    ```bash
@@ -24,14 +24,14 @@ Register this agent for multi-agent file coordination via intermute.
        curl -sf "$INTERMUTE_URL/health"
    fi
    ```
-   If unreachable, tell the user to run `/clavain:setup --scope interlock` first and stop.
+   If unreachable, tell the user to run `/interlock:setup` first and stop.
 
 4. **Register agent** by calling `POST /api/agents` with the resolved name and session ID.
 
 5. **Create flag files:**
    ```bash
-   touch ~/.config/clavain/intermute-joined
-   echo "$AGENT_NAME" > ~/.config/clavain/intermute-agent-name
+   touch ~/.config/interlock/joined
+   echo "$AGENT_NAME" > ~/.config/interlock/agent-name
    ```
 
 6. **List active agents** via `GET /api/agents` and display as a table showing name, agent ID (short), and status.

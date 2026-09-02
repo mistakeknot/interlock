@@ -12,9 +12,12 @@ source "${SCRIPT_DIR}/../hooks/lib.sh"
 
 # Determine agent name
 AGENT_NAME=""
-NAME_FILE="${HOME}/.config/clavain/intermute-agent-name"
+NAME_FILE="${HOME}/.config/interlock/agent-name"
+LEGACY_NAME_FILE="${HOME}/.config/clavain/intermute-agent-name"
 if [[ -f "$NAME_FILE" ]]; then
     AGENT_NAME="$(head -1 "$NAME_FILE" 2>/dev/null | tr -d '\n')"
+elif [[ -f "$LEGACY_NAME_FILE" ]]; then
+    AGENT_NAME="$(head -1 "$LEGACY_NAME_FILE" 2>/dev/null | tr -d '\n')"
 fi
 if [[ -z "$AGENT_NAME" ]] && command -v tmux &>/dev/null; then
     AGENT_NAME="$(tmux display-message -p '#T' 2>/dev/null || true)"
