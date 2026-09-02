@@ -124,3 +124,7 @@ Contact policy:
 - Join-flag gating: all hooks check `~/.config/interlock/joined` before running
 - `INTERLOCK_AUTO_RELEASE=1` enables advisory release-request notifications in the pre-edit hook
 - Negotiation protocol (reservation-ID pinning, participant checks): [docs/negotiation-protocol.md](docs/negotiation-protocol.md)
+
+## Contributing
+
+Bug reports and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities as described in [SECURITY.md](SECURITY.md), not in a public issue.
