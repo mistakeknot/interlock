@@ -881,3 +881,46 @@ func TestVerifyNegotiationParty(t *testing.T) {
 		t.Fatal("holder must not escalate as requester")
 	}
 }
+
+func TestRegisterAgent_StoresTokenAndSendsHeader(t *testing.T) {
+	t.Parallel()
+
+	var seenToken []string
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("a1"), WithAgentName("alpha"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		seenToken = append(seenToken, r.Header.Get("X-Agent-Token"))
+		if r.Method == http.MethodPost && r.URL.Path == "/api/agents" {
+			return jsonResponse(http.StatusOK, map[string]any{"agent_id": "a1", "name": "alpha", "token": "t1"}), nil
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"agents": []any{}}), nil
+	})
+
+	agent, err := c.RegisterAgent(context.Background())
+	if err != nil {
+		t.Fatalf("RegisterAgent() error = %v", err)
+	}
+	if agent.Token != "t1" || c.AgentToken() != "t1" {
+		t.Fatalf("token not stored: agent=%+v client=%q", agent, c.AgentToken())
+	}
+	if _, err := c.ListAgents(context.Background()); err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(seenToken) != 2 || seenToken[0] != "" || seenToken[1] != "t1" {
+		t.Fatalf("X-Agent-Token per request = %v, want [\"\" \"t1\"] (absent before registration, present after)", seenToken)
+	}
+}
+
+func TestRegisterAgent_FailureLeavesNoToken(t *testing.T) {
+	t.Parallel()
+
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("a1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusInternalServerError, map[string]any{"error": "down"}), nil
+	})
+	if _, err := c.RegisterAgent(context.Background()); err == nil {
+		t.Fatal("expected registration error")
+	}
+	if c.AgentToken() != "" {
+		t.Fatalf("token should stay empty after a failed registration, got %q", c.AgentToken())
+	}
+}

@@ -24,7 +24,17 @@ type Client struct {
 	agentID   string
 	project   string
 	agentName string
+	// agentToken is the registration token intermute bound to agentID. When
+	// set it travels as X-Agent-Token so the server can verify that the
+	// caller is who X-Agent-ID says; without it identity is self-asserted.
+	agentToken string
 }
+
+// SetAgentToken installs the registration token sent as X-Agent-Token.
+func (c *Client) SetAgentToken(token string) { c.agentToken = token }
+
+// AgentToken returns the registration token in use, empty if none.
+func (c *Client) AgentToken() string { return c.agentToken }
 
 // Option configures a Client.
 type Option func(*Client)
@@ -157,6 +167,8 @@ type Agent struct {
 	Capabilities []string `json:"capabilities"`
 	Status       string   `json:"status"`
 	LastSeen     string   `json:"last_seen"`
+	// Token is returned by registration only; intermute never lists it.
+	Token string `json:"token,omitempty"`
 }
 
 // Message represents an inbox message.
@@ -554,6 +566,9 @@ func (c *Client) RegisterAgent(ctx context.Context) (*Agent, error) {
 	var agent Agent
 	if err := c.doJSON(ctx, "POST", "/api/agents", body, &agent); err != nil {
 		return nil, err
+	}
+	if agent.Token != "" {
+		c.agentToken = agent.Token
 	}
 	return &agent, nil
 }
@@ -1196,6 +1211,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	}
 	if c.agentID != "" {
 		req.Header.Set("X-Agent-ID", c.agentID)
+		if c.agentToken != "" {
+			req.Header.Set("X-Agent-Token", c.agentToken)
+		}
 	}
 
 	resp, err := c.http.Do(req)

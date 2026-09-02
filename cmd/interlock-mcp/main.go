@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -21,6 +24,13 @@ func main() {
 		client.WithAgentName(getAgentName()),
 	)
 
+	// Register with intermute so this agent is listable and so every later
+	// request carries the token intermute bound to its ID. A raw-MCP install
+	// has no session hook to do this for it. Registration failing must not
+	// stop the server: with intermute down the tools still answer, they just
+	// report the coordination loss.
+	registerSelf(c)
+
 	metrics := mcputil.NewMetrics()
 	s := server.NewMCPServer(
 		"interlock",
@@ -34,6 +44,14 @@ func main() {
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "interlock-mcp: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func registerSelf(c *client.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := c.RegisterAgent(ctx); err != nil {
+		log.Printf("interlock-mcp: registration skipped: %v", err)
 	}
 }
 
