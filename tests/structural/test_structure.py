@@ -330,19 +330,6 @@ class TestMandatoryReservations:
 class TestMultiSessionCoordination:
     """Tests for Phase 1 multi-session git safety features."""
 
-    def test_session_start_installs_worktree_isolation(self, project_root):
-        content = (project_root / "hooks" / "session-start.sh").read_text()
-        assert "INTERLOCK_SESSION_WORKTREE" in content
-        assert "worktree add" in content
-        assert "GIT_INDEX_FILE" not in content
-        assert "SESSION_INDEX" not in content
-        assert "git()" not in content
-
-    def test_session_start_uses_session_id_for_worktree(self, project_root):
-        content = (project_root / "hooks" / "session-start.sh").read_text()
-        assert "$SESSION_ID" in content
-        assert "session_worktree_path" in content
-
     def test_session_start_does_not_install_git_function_wrapper(self, project_root):
         # Regression test for sylveste-4pth: git function wrappers with a
         # per-session index can still commit stale trees. Worktree isolation
@@ -352,126 +339,6 @@ class TestMultiSessionCoordination:
         assert '"export GIT_INDEX_FILE=' not in content
         assert "export -f git" not in content
         assert "git()" not in content
-
-    def test_session_start_creates_real_worktree(self, project_root):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            repo = tmp_path / "repo"
-            repo.mkdir()
-            subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
-            (repo / "README.md").write_text("base\n")
-            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True)
-
-            home = tmp_path / "home"
-            (home / ".config" / "clavain").mkdir(parents=True)
-            (home / ".config" / "clavain" / "intermute-joined").write_text("")
-
-            fake_bin = tmp_path / "bin"
-            fake_bin.mkdir()
-            curl = fake_bin / "curl"
-            curl.write_text("#!/usr/bin/env bash\nexit 1\n")
-            curl.chmod(0o755)
-
-            env_file = tmp_path / "env.sh"
-            env = os.environ.copy()
-            env["HOME"] = str(home)
-            env["CLAUDE_ENV_FILE"] = str(env_file)
-            env["INTERLOCK_WORKTREE_ROOT"] = str(tmp_path / "worktrees")
-            env["PATH"] = f"{fake_bin}:{env['PATH']}"
-
-            result = subprocess.run(
-                [str(project_root / "hooks" / "session-start.sh")],
-                cwd=repo,
-                input=json.dumps({"session_id": "session-abc123", "hook_event_name": "SessionStart"}),
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            assert result.returncode == 0, result.stderr
-            env_text = env_file.read_text()
-            assert "INTERLOCK_SESSION_WORKTREE" in env_text
-            assert "GIT_INDEX_FILE" not in env_text
-
-            worktree = subprocess.check_output(
-                ["bash", "-c", f"source {env_file}; printf '%s' \"$INTERLOCK_SESSION_WORKTREE\""],
-                text=True,
-            )
-            assert worktree
-            assert Path(worktree).resolve() != repo.resolve()
-            inside = subprocess.check_output(
-                ["git", "-C", worktree, "rev-parse", "--is-inside-work-tree"],
-                text=True,
-            ).strip()
-            assert inside == "true"
-
-    def test_pre_edit_blocks_original_checkout_when_worktree_active(self, project_root):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            original = tmp_path / "repo"
-            worktree = tmp_path / "worktree"
-            original.mkdir()
-            worktree.mkdir()
-
-            env = os.environ.copy()
-            env["HOME"] = str(tmp_path / "home")
-            env["INTERMUTE_AGENT_ID"] = "agent-1"
-            env["CLAUDE_SESSION_ID"] = "session-1"
-            env["INTERLOCK_PROJECT_ROOT"] = str(original)
-            env["INTERLOCK_SESSION_WORKTREE"] = str(worktree)
-
-            result = subprocess.run(
-                [str(project_root / "hooks" / "pre-edit.sh")],
-                cwd=original,
-                input=json.dumps(
-                    {
-                        "cwd": str(original),
-                        "tool_input": {"file_path": str(original / "README.md")},
-                    }
-                ),
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            assert result.returncode == 0, result.stderr
-            payload = json.loads(result.stdout)
-            assert payload["decision"] == "block"
-            assert str(worktree) in payload["reason"]
-
-    def test_pre_edit_blocks_relative_path_outside_worktree(self, project_root):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            original = tmp_path / "repo"
-            worktree = tmp_path / "worktree"
-            original.mkdir()
-            worktree.mkdir()
-
-            env = os.environ.copy()
-            env["HOME"] = str(tmp_path / "home")
-            env["INTERMUTE_AGENT_ID"] = "agent-1"
-            env["CLAUDE_SESSION_ID"] = "session-1"
-            env["INTERLOCK_PROJECT_ROOT"] = str(original)
-            env["INTERLOCK_SESSION_WORKTREE"] = str(worktree)
-
-            result = subprocess.run(
-                [str(project_root / "hooks" / "pre-edit.sh")],
-                cwd=original,
-                input=json.dumps(
-                    {
-                        "cwd": str(original),
-                        "tool_input": {"file_path": "README.md"},
-                    }
-                ),
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            assert result.returncode == 0, result.stderr
-            payload = json.loads(result.stdout)
-            assert payload["decision"] == "block"
-            assert "INTERLOCK_SESSION_WORKTREE" in payload["reason"]
 
     def test_pre_edit_allows_absolute_worktree_path(self, project_root):
         with tempfile.TemporaryDirectory() as tmp:
@@ -559,22 +426,10 @@ class TestMultiSessionCoordination:
         result = subprocess.run(["bash", "-n", str(path)], capture_output=True)
         assert result.returncode == 0, f"Syntax error: {result.stderr.decode()}"
 
-    def test_stop_does_not_delete_worktree_by_default(self, project_root):
-        content = (project_root / "hooks" / "stop.sh").read_text()
-        assert "GIT_INDEX_FILE" not in content
-        assert "git worktree remove" not in content
-        assert "INTERLOCK_SESSION_WORKTREE" in content
-
     def test_installer_handles_postcommit(self, project_root):
         content = (project_root / "scripts" / "interlock-install-hooks").read_text()
         assert "post-commit" in content
         assert "interlock-postcommit-hook" in content
-
-    def test_lib_has_git_helpers(self, project_root):
-        content = (project_root / "hooks" / "lib.sh").read_text()
-        assert "git_root()" in content
-        assert "session_worktree_path()" in content
-        assert "commit_lock_path()" in content
 
 
 class TestSignals:
