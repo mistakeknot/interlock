@@ -121,3 +121,4 @@ Contact policy:
 - Go binary for MCP server, bash for hooks
 - Join-flag gating: all hooks check `~/.config/interlock/joined` before running
 - `INTERLOCK_AUTO_RELEASE=1` enables advisory release-request notifications in the pre-edit hook
+- Negotiation protocol (reservation-ID pinning, participant checks): [docs/negotiation-protocol.md](docs/negotiation-protocol.md)
