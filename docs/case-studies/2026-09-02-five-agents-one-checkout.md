@@ -58,7 +58,7 @@ Each lane was asked for the three most annoying things about coordinating. The a
 
 ## What shipped
 
-All nine are fixed in interlock 0.2.20 (#3 to #9), intermute 0.1.1 (#7, #8), and intermux 0.1.15 (#7, #8), each with a test written from the failing case above. Two more defects fell out of writing those tests rather than out of the run: the registration script's identity-adoption loop miscounted on macOS, where `grep -c` prints `0` and exits 1, and intermux dropped a mapping file loaded before the session's first scan.
+All nine are fixed in interlock 0.2.20 (#3 to #9), intermute 0.1.1 (#7, #8), and intermux 0.1.15 (#7, #8), each with a test written from the failing case above. Three more defects fell out of the fixes rather than out of the run: the registration script's identity-adoption loop miscounted on macOS, where `grep -c` prints `0` and exits 1; intermux dropped a mapping file loaded before the session's first scan; and once intermute refused unknown agents, the two-agent demo failed when run from inside a session with the plugin loaded, because it had been inheriting the caller's agent identity and both demo agents had silently been the caller (interlock #10).
 
 ## What this means for the stack
 

@@ -17,6 +17,7 @@ Found by running five agents through interlock on one checkout (2026-09-02); the
 - `interlock-mcp --version` prints the version and exits; any other flag is rejected. The pre-edit hook uses intermute unless `INTERLOCK_RESERVE_BACKEND=ic` asks for intercore explicitly (#7).
 - The README and SECURITY.md say which edits the pre-edit hook sees: Edit and Write tool calls, not shell writes (#9).
 - `fetch_inbox` pages: it sends intermute's `since_cursor`, returns the server's position as `next_cursor`, and caps a page at 50. It used to send a parameter intermute ignores and read a field intermute never sets, so every call returned the whole history, and one lane's inbox outgrew the client's output limit (#8). The pre-edit hook's inbox poll now uses the real route and acknowledges as the agent.
+- The two-agent demo clears the caller's agent identity for the agents it launches. Run from inside a Claude Code session with the plugin loaded, both demo agents used to run as the caller, which intermute 0.1.1 now refuses (#10).
 - Tests: `tests/structural/test_hook_scripts.py` runs the check script, the pre-edit hook, the post-commit hook, and the registration script against a fake intermute, including identity adoption and the reserve-backend switch.
 
 ## [0.2.19] - 2026-09-01
