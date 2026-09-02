@@ -7,6 +7,8 @@ tests/structural/__pycache__/
 .clavain/**/*.db
 .clavain/**/*.db-shm
 .clavain/**/*.db-wal
+.claude/agents/
+.claude/flux-gen-specs/
 
 # Local publish-approval marker (never committed)
 .publish-approved

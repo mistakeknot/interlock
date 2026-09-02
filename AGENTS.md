@@ -1,8 +1,7 @@
 # interlock — Development Guide
 
 ## Canonical References
-1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) — direction for ideation and planning decisions.
-2. `CLAUDE.md` — implementation details, architecture, testing, and release workflow.
+1. `CLAUDE.md` — implementation details, architecture, testing, and release workflow.
 
 MCP server for intermute-backed file reservation and agent coordination. Companion plugin for Clavain.
 
