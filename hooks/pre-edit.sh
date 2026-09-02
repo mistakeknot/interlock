@@ -276,13 +276,15 @@ RESERVE_PAYLOAD=$(jq -nc \
     --arg reason "auto-reserve: editing" \
     '{agent_id:$agent, project:$project, path_pattern:$pattern, exclusive:true, reason:$reason, ttl_minutes:15}')
 
-RESERVE_CODE=$(intermute_post_code "/api/reservations" "$RESERVE_PAYLOAD")
+RESERVE_BODY="$(mktemp "${TMPDIR:-/tmp}/interlock-body.XXXXXX")"
+RESERVE_CODE=$(intermute_post_code "/api/reservations" "$RESERVE_PAYLOAD" "$RESERVE_BODY")
 if [[ "$RESERVE_CODE" == "409" ]]; then
     # intermute refused the hold because someone else has it (issue #3): block,
     # unless the holder shares our name, which is our own MCP server (issue #4).
-    HB=$(jq -r '.conflicts[0].held_by // .conflicts[0].agent_id // "another agent"' "${INTERMUTE_LAST_BODY_FILE:-/dev/null}" 2>/dev/null) || HB="another agent"
-    RS=$(jq -r '.conflicts[0].reason // ""' "${INTERMUTE_LAST_BODY_FILE:-/dev/null}" 2>/dev/null) || RS=""
-    rm -f "${INTERMUTE_LAST_BODY_FILE:-}"
+    HB=$(jq -r '.conflicts[0].held_by // .conflicts[0].agent_id // "another agent"' "$RESERVE_BODY" 2>/dev/null) || HB="another agent"
+    RS=$(jq -r '.conflicts[0].reason // ""' "$RESERVE_BODY" 2>/dev/null) || RS=""
+    rm -f "$RESERVE_BODY"
+    [[ -n "$HB" ]] || HB="another agent"
     if [[ -n "${INTERMUTE_AGENT_NAME:-}" && "$HB" == "$INTERMUTE_AGENT_NAME" ]]; then
         exit 0
     fi
@@ -290,6 +292,6 @@ if [[ "$RESERVE_CODE" == "409" ]]; then
         '{"decision": "block", "reason": ("INTERLOCK: " + $fp + " is exclusively reserved by " + $hb + (if $rs != "" then " (\"" + $rs + "\")" else "" end) + ". Work on other files, use request_release(agent_name=\"" + $hb + "\"), or wait for expiry.")}'
     exit 0
 fi
-rm -f "${INTERMUTE_LAST_BODY_FILE:-}"
+rm -f "$RESERVE_BODY"
 
 exit 0

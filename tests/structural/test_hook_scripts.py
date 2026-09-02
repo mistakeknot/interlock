@@ -20,6 +20,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 CHECK = REPO / "scripts" / "interlock-check.sh"
 POSTCOMMIT = REPO / "scripts" / "interlock-postcommit-hook"
+PRE_EDIT = REPO / "hooks" / "pre-edit.sh"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("jq") is None or shutil.which("curl") is None,
@@ -34,6 +35,7 @@ class FakeIntermute:
         self.reservations = reservations
         self.agents = agents
         self.agent_reservations = agent_reservations or []
+        self.post_only_reservations = []  # holds the POST sees but the list does not (race)
         self.posts = []
         self.deletes = []
         fake = self
@@ -67,10 +69,25 @@ class FakeIntermute:
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length).decode()
-                fake.posts.append((self.path, json.loads(body) if body else None))
+                payload = json.loads(body) if body else None
+                fake.posts.append((self.path, payload))
+                if self.path == "/api/reservations" and payload:
+                    for r in fake.reservations + fake.post_only_reservations:
+                        same_path = r["path_pattern"] == payload["path_pattern"]
+                        if r["is_active"] and r["exclusive"] and same_path and r["agent_id"] != payload["agent_id"]:
+                            name = next((a["name"] for a in fake.agents if a["agent_id"] == r["agent_id"]), "")
+                            self._send(409, {"error": "reservation_conflict", "conflicts": [
+                                {"reservation_id": r["id"], "agent_id": r["agent_id"], "held_by": name,
+                                 "pattern": r["path_pattern"], "reason": r["reason"], "expires_at": r["expires_at"]}]})
+                            return
+                    self._send(200, dict(payload, id="res-new"))
+                    return
                 self._send(200, {"message_id": "m-1", "cursor": 1, "delivery": "async"})
 
             def do_DELETE(self):
+                if not self.headers.get("X-Agent-ID"):
+                    self._send(403, {"error": "agent identity required"})
+                    return
                 fake.deletes.append(self.path)
                 self._send(200, {"released": True})
 
@@ -93,9 +110,15 @@ def _git_repo(tmp_path: Path) -> Path:
     return repo
 
 
+def _stranger_path():
+    """PATH without any directory that holds an `ic` binary: the pre-edit hook
+    prefers intercore when it finds one, and a stranger has none."""
+    return ":".join(d for d in os.environ["PATH"].split(":") if not (Path(d) / "ic").exists())
+
+
 def _env(fake_url, **extra):
     env = {
-        "PATH": os.environ["PATH"],
+        "PATH": _stranger_path(),
         "HOME": os.environ.get("HOME", "/tmp"),
         "INTERMUTE_URL": fake_url,
         "INTERMUTE_SOCKET": "/nonexistent/intermute.sock",
@@ -251,3 +274,83 @@ class TestPostCommitHook:
             fake.stop()
         assert proc.returncode == 0, proc.stderr
         assert "/api/reservations/res-glob" in fake.deletes, fake.deletes
+
+
+class TestPreEditHook:
+    """The PreToolUse hook end to end: stdin JSON in, block decision or nothing out."""
+
+    def _run(self, repo, fake, path):
+        hook_input = json.dumps({
+            "session_id": "sess-1",
+            "cwd": str(repo),
+            "tool_name": "Edit",
+            "tool_input": {"file_path": str(repo / path), "old_string": "a", "new_string": "b"},
+        })
+        return subprocess.run(
+            ["bash", str(PRE_EDIT)],
+            cwd=repo,
+            input=hook_input,
+            env=_env(
+                fake.url,
+                INTERMUTE_AGENT_ID="us",
+                INTERMUTE_AGENT_NAME="me",
+                INTERMUTE_PROJECT="proj",
+                INTERLOCK_PROJECT_ROOT=str(repo),
+                CLAUDE_SESSION_ID="sess-1",
+            ),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_foreign_hold_blocks_and_names_the_holder(self, tmp_path):
+        repo = _git_repo(tmp_path)
+        fake = FakeIntermute([_reservation("other", "README.md", reason="rewriting")], AGENTS)
+        try:
+            proc = self._run(repo, fake, "README.md")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert out["decision"] == "block"
+        assert "peer" in out["reason"] and "rewriting" in out["reason"]
+        assert 'request_release(agent_name="peer")' in out["reason"]
+
+    def test_same_name_hold_is_allowed(self, tmp_path):
+        repo = _git_repo(tmp_path)
+        fake = FakeIntermute([_reservation("twin", "README.md")], AGENTS)
+        try:
+            proc = self._run(repo, fake, "README.md")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "", proc.stdout
+
+    def test_free_file_is_auto_reserved(self, tmp_path):
+        repo = _git_repo(tmp_path)
+        fake = FakeIntermute([], AGENTS)
+        try:
+            proc = self._run(repo, fake, "README.md")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "", proc.stdout
+        reserves = [p for p in fake.posts if p[0] == "/api/reservations"]
+        assert len(reserves) == 1, fake.posts
+        assert reserves[0][1]["path_pattern"] == "README.md"
+        assert reserves[0][1]["agent_id"] == "us"
+
+    def test_race_lost_at_reserve_time_blocks(self, tmp_path):
+        """The check sees nothing, but by the time the hook reserves, someone
+        else holds the file: intermute's 409 must become a block, not silence."""
+        repo = _git_repo(tmp_path)
+        fake = FakeIntermute([], AGENTS)
+        fake.post_only_reservations = [_reservation("other", "README.md", reason="late")]
+        try:
+            proc = self._run(repo, fake, "README.md")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert out["decision"] == "block"
+        assert "peer" in out["reason"] and "late" in out["reason"]

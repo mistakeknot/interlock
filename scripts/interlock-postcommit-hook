@@ -70,7 +70,8 @@ if [[ -n "$OUR_RESERVATIONS" && -n "$CHANGED_FILES" ]]; then
 
         while IFS= read -r res_id; do
             [[ -z "$res_id" ]] && continue
-            "${CURL_BASE[@]}" -X DELETE "${BASE_URL}/api/reservations/${res_id}" 2>/dev/null || true
+            # DELETE answers 403 unless the caller identifies as the holder.
+            "${CURL_BASE[@]}" -X DELETE -H "X-Agent-ID: ${INTERMUTE_AGENT_ID}" "${BASE_URL}/api/reservations/${res_id}" >/dev/null 2>&1 || true
         done <<< "$MATCHING_IDS"
     done <<< "$CHANGED_FILES"
 fi

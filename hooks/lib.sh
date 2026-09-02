@@ -9,13 +9,12 @@ is_joined() {
     [[ -f "$JOIN_FLAG" || -f "$LEGACY_JOIN_FLAG" ]]
 }
 
-# intermute_post_code PATH JSON prints the HTTP status of a POST (000 when
-# unreachable) and leaves the response body in the file named by
-# INTERMUTE_LAST_BODY_FILE. Callers remove that file.
+# intermute_post_code PATH JSON BODYFILE prints the HTTP status of a POST (000
+# when unreachable) and writes the response body to BODYFILE. It runs inside a
+# command substitution, so it cannot hand anything back through a variable.
 intermute_post_code() {
-    local path="$1"; local data="$2"
-    INTERMUTE_LAST_BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/interlock-body.XXXXXX")"
-    local curl_args=(curl -s --connect-timeout 2 --max-time 5 -o "$INTERMUTE_LAST_BODY_FILE" -w '%{http_code}' -X POST -H "Content-Type: application/json" -d "$data")
+    local path="$1"; local data="$2"; local bodyfile="$3"
+    local curl_args=(curl -s --connect-timeout 2 --max-time 5 -o "$bodyfile" -w '%{http_code}' -X POST -H "Content-Type: application/json" -d "$data")
     if [[ -n "${INTERMUTE_SOCKET:-}" && -S "${INTERMUTE_SOCKET}" ]]; then
         "${curl_args[@]}" --unix-socket "$INTERMUTE_SOCKET" "http://localhost${path}" 2>/dev/null || echo 000
     else
