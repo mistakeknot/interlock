@@ -86,6 +86,9 @@ class FakeIntermute:
                             return
                     self._send(200, dict(payload, id="res-new"))
                     return
+                if self.path == "/api/agents" and payload:
+                    self._send(201, {"agent_id": "new-1", "name": payload.get("name", ""), "project": payload.get("project", "")})
+                    return
                 self._send(200, {"message_id": "m-1", "cursor": 1, "delivery": "async"})
 
             def do_DELETE(self):
@@ -375,3 +378,118 @@ class TestPreEditHook:
         assert any(g.startswith("/api/inbox/us?") for g in fake.gets), fake.gets
         acks = [p for p in fake.posts if p[0] == "/api/messages/m-commit/ack"]
         assert acks and acks[0][1] == {"agent": "us"}, fake.posts
+
+
+REGISTER = PRE_EDIT.parent.parent / "scripts" / "interlock-register.sh"
+
+
+class TestRegisterScript:
+    """scripts/interlock-register.sh: one identity per session (#4)."""
+
+    def _run(self, tmp_path, fake, **extra):
+        env = _env(fake.url, HOME=str(tmp_path), **extra)
+        return subprocess.run(
+            ["bash", str(REGISTER), "sess-1"],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def test_adopts_the_agent_the_server_registered_under_the_same_name(self, tmp_path):
+        fake = FakeIntermute([], [{"agent_id": "srv-1", "name": "sweep-x", "project": "proj"}])
+        try:
+            proc = self._run(tmp_path, fake, INTERLOCK_AGENT_NAME="sweep-x")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert out == {"agent_id": "srv-1", "name": "sweep-x", "session_id": "sess-1", "adopted": True}
+        assert not [p for p in fake.posts if p[0] == "/api/agents"], "adoption must not register a second agent"
+
+    def test_registers_when_no_agent_carries_the_name(self, tmp_path):
+        fake = FakeIntermute([], [{"agent_id": "srv-1", "name": "someone-else", "project": "proj"}])
+        try:
+            proc = self._run(tmp_path, fake, INTERLOCK_AGENT_NAME="fresh")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["agent_id"] == "new-1" and out["name"] == "fresh" and "adopted" not in out
+        registered = [p for p in fake.posts if p[0] == "/api/agents"]
+        assert len(registered) == 1 and registered[0][1]["name"] == "fresh"
+
+    def test_two_agents_with_the_name_means_register_not_guess(self, tmp_path):
+        fake = FakeIntermute([], AGENTS)  # "us" and "twin" are both named "me"
+        try:
+            proc = self._run(tmp_path, fake, INTERLOCK_AGENT_NAME="me")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["agent_id"] == "new-1" and "adopted" not in out
+
+
+class TestReserveBackendSwitch:
+    """The pre-edit hook uses intermute unless INTERLOCK_RESERVE_BACKEND=ic asks for
+    intercore explicitly (#7). It used to switch silently whenever `ic` was on PATH."""
+
+    def _fake_ic(self, tmp_path):
+        icdir = tmp_path / "icbin"
+        icdir.mkdir()
+        marker = tmp_path / "ic-calls.log"
+        ic = icdir / "ic"
+        ic.write_text(
+            "#!/usr/bin/env bash\n"
+            f"echo \"$*\" >> {marker}\n"
+            "[ \"$1\" = version ] && exit 0\n"
+            "echo '{\"reserved\":true}'\n"
+            "exit 0\n"
+        )
+        ic.chmod(0o755)
+        return icdir, marker
+
+    def _run(self, repo, fake, icdir, **extra):
+        hook_input = json.dumps({
+            "session_id": "sess-1",
+            "cwd": str(repo),
+            "tool_name": "Edit",
+            "tool_input": {"file_path": str(repo / "README.md"), "old_string": "a", "new_string": "b"},
+        })
+        env = _env(
+            fake.url,
+            INTERMUTE_AGENT_ID="us",
+            INTERMUTE_AGENT_NAME="me",
+            INTERMUTE_PROJECT="proj",
+            INTERLOCK_PROJECT_ROOT=str(repo),
+            CLAUDE_SESSION_ID="sess-1",
+            **extra,
+        )
+        env["PATH"] = f"{icdir}:{env['PATH']}"
+        return subprocess.run(["bash", str(PRE_EDIT)], cwd=repo, input=hook_input, env=env,
+                              capture_output=True, text=True, timeout=30)
+
+    def test_ic_on_path_is_ignored_by_default(self, tmp_path):
+        repo = _git_repo(tmp_path)
+        icdir, marker = self._fake_ic(tmp_path)
+        fake = FakeIntermute([], AGENTS)
+        try:
+            proc = self._run(repo, fake, icdir)
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        assert not marker.exists(), f"ic was called: {marker.read_text() if marker.exists() else ''}"
+        assert any(p[0] == "/api/reservations" for p in fake.posts), "intermute must take the reservation"
+
+    def test_ic_backend_is_opt_in(self, tmp_path):
+        repo = _git_repo(tmp_path)
+        icdir, marker = self._fake_ic(tmp_path)
+        fake = FakeIntermute([], AGENTS)
+        try:
+            proc = self._run(repo, fake, icdir, INTERLOCK_RESERVE_BACKEND="ic")
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        assert marker.exists() and "coordination reserve" in marker.read_text()
+        assert not any(p[0] == "/api/reservations" for p in fake.posts), "intercore path must not also reserve via intermute"

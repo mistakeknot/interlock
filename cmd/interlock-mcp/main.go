@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,9 +21,31 @@ import (
 // version is the release version; set at build time with
 //
 //	go build -ldflags "-X main.version=x.y.z" ./cmd/interlock-mcp
-var version = "0.2.19"
+var version = "0.2.20"
+
+// handleVersionFlag answers --version/-v and rejects other flags so that
+// `interlock-mcp --version` prints and exits instead of starting a server that
+// registers itself with intermute (issue #7).
+func handleVersionFlag(args []string, out io.Writer, errOut io.Writer) (exitCode int, handled bool) {
+	for _, a := range args {
+		switch a {
+		case "--version", "-v", "version":
+			fmt.Fprintf(out, "interlock-mcp %s\n", version)
+			return 0, true
+		default:
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintf(errOut, "interlock-mcp: unknown flag %q (only --version is accepted; the server takes no arguments)\n", a)
+				return 2, true
+			}
+		}
+	}
+	return 0, false
+}
 
 func main() {
+	if code, handled := handleVersionFlag(os.Args[1:], os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
 	c := client.NewClient(
 		client.WithSocketPath(os.Getenv("INTERMUTE_SOCKET")),
 		client.WithBaseURL(os.Getenv("INTERMUTE_URL")),
@@ -61,6 +86,14 @@ func registerSelf(c *client.Client) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	// One identity per session (issue #4): if the session-start hook already
+	// registered this name, adopt that row instead of creating a second one.
+	if adopted, err := c.AdoptAgentByName(ctx); err != nil {
+		log.Printf("interlock-mcp: adoption lookup failed, registering fresh: %v", err)
+	} else if adopted != nil {
+		log.Printf("interlock-mcp: adopted existing agent %s (%s)", adopted.AgentID, adopted.Name)
+		return
+	}
 	agent, err := c.RegisterAgent(ctx)
 	if err != nil {
 		log.Printf("interlock-mcp: registration skipped: %v", err)
@@ -97,6 +130,15 @@ func getAgentName() string {
 	}
 	if n := os.Getenv("INTERMUTE_AGENT_NAME"); n != "" {
 		return n
+	}
+	// Inside tmux, the pane title is what the session-start hook falls back
+	// to as well, so both halves of a session land on the same name (issue #4).
+	if os.Getenv("TMUX") != "" {
+		if out, err := exec.Command("tmux", "display-message", "-p", "#T").Output(); err == nil {
+			if t := strings.TrimSpace(string(out)); t != "" {
+				return t
+			}
+		}
 	}
 	return getAgentID()
 }

@@ -1000,3 +1000,36 @@ func TestFetchInbox_UsesSinceCursorAndReturnsPosition(t *testing.T) {
 		t.Fatalf("empty page: next %q err %v; want \"\"", next, err)
 	}
 }
+
+func TestAdoptAgentByName(t *testing.T) {
+	t.Parallel()
+
+	serve := func(agents []map[string]any) *Client {
+		c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("fresh"), WithProject("p1"), WithAgentName("me"))
+		c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path == "/api/agents" {
+				return jsonResponse(http.StatusOK, map[string]any{"agents": agents}), nil
+			}
+			return jsonResponse(http.StatusNotFound, map[string]any{"error": "not found"}), nil
+		})
+		return c
+	}
+
+	c := serve([]map[string]any{{"agent_id": "hook-1", "name": "me", "project": "p1"}, {"agent_id": "other", "name": "peer", "project": "p1"}})
+	adopted, err := c.AdoptAgentByName(context.Background())
+	if err != nil || adopted == nil || adopted.AgentID != "hook-1" || c.AgentID() != "hook-1" {
+		t.Fatalf("one match: adopted=%v err=%v id=%q", adopted, err, c.AgentID())
+	}
+
+	c = serve([]map[string]any{{"agent_id": "a", "name": "me"}, {"agent_id": "b", "name": "me"}})
+	adopted, err = c.AdoptAgentByName(context.Background())
+	if err != nil || adopted != nil || c.AgentID() != "fresh" {
+		t.Fatalf("two matches must not adopt: adopted=%v err=%v id=%q", adopted, err, c.AgentID())
+	}
+
+	c = serve(nil)
+	adopted, err = c.AdoptAgentByName(context.Background())
+	if err != nil || adopted != nil || c.AgentID() != "fresh" {
+		t.Fatalf("no match must not adopt: adopted=%v err=%v id=%q", adopted, err, c.AgentID())
+	}
+}

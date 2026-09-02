@@ -163,7 +163,10 @@ PROJECT="${INTERMUTE_PROJECT:-$(basename "$PROJECT_ID_ROOT" 2>/dev/null)}"
 # --- Check for conflicts and auto-reserve ---
 # Preferred: use ic coordination (atomic reserve, eliminates TOCTOU).
 # Fallback: use intermute HTTP API via interlock-check.sh.
-if command -v ic &>/dev/null && ic version &>/dev/null 2>&1; then
+# The intermute path is the default. The intercore path is opt-in: on a machine
+# that happens to have `ic` on PATH the hook used to switch backends silently,
+# so maintainer and stranger ran different code (issue #7).
+if [[ "${INTERLOCK_RESERVE_BACKEND:-intermute}" == "ic" ]] && command -v ic &>/dev/null && ic version &>/dev/null 2>&1; then
     # Single atomic reserve call: if conflict exists, returns exit 1 with conflict info.
     # If clear, creates the reservation (no separate check-then-reserve race).
     # SAFETY: use jq --arg to prevent shell injection from file paths and blocker values.

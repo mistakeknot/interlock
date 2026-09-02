@@ -94,6 +94,28 @@ fi
 
 REGISTER_ID="${AGENT_ID_OVERRIDE:-$AGENT_ID_DEFAULT}"
 
+# One identity per session (issue #4): the MCP server registers under the same
+# name when INTERLOCK_AGENT_NAME is set or both sides read the tmux pane title.
+# If that row exists, adopt it instead of registering a second agent. The two
+# start at the same moment, so wait briefly for the server's row to appear.
+if [[ -z "$AGENT_ID_OVERRIDE" && ( -n "${INTERLOCK_AGENT_NAME:-}" || -n "${TMUX:-}" ) ]]; then
+    for _try in 1 2 3 4 5 6; do
+        AGENTS_JSON=$(intermute_curl GET "/api/agents?project=$(printf '%s' "$PROJECT" | jq -sRr @uri)" 2>/dev/null) || AGENTS_JSON=""
+        MATCH_IDS=$(echo "$AGENTS_JSON" | jq -r --arg name "$AGENT_NAME" '[.agents[]? | select(.name == $name) | .agent_id] | .[]' 2>/dev/null) || MATCH_IDS=""
+        # grep -c prints 0 and exits 1 when nothing matches, so no fallback echo here.
+        MATCH_COUNT=$(printf '%s\n' "$MATCH_IDS" | grep -c . 2>/dev/null || true)
+        MATCH_COUNT="${MATCH_COUNT:-0}"
+        if [[ "$MATCH_COUNT" -eq 1 ]]; then
+            AGENT_ID="$(printf '%s\n' "$MATCH_IDS" | head -1)"
+            jq -nc --arg agent_id "$AGENT_ID" --arg name "$AGENT_NAME" --arg session_id "$SESSION_ID" \
+                '{agent_id: $agent_id, name: $name, session_id: $session_id, adopted: true}'
+            exit 0
+        fi
+        [[ "$MATCH_COUNT" -gt 1 ]] && break
+        sleep 0.5
+    done
+fi
+
 # POST to intermute /api/agents
 RESPONSE=$(intermute_curl POST "/api/agents" \
     -H "Content-Type: application/json" \

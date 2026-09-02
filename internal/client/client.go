@@ -578,6 +578,33 @@ func (c *Client) RegisterAgent(ctx context.Context) (*Agent, error) {
 	return &agent, nil
 }
 
+// AdoptAgentByName looks for an agent already registered under this client's
+// name in its project and, when exactly one exists, takes over its id. It
+// returns nil when there is nothing to adopt. Adoption carries no token, so it
+// only works where intermute lets loopback callers through without one; a
+// caller that needs a token registers instead.
+func (c *Client) AdoptAgentByName(ctx context.Context) (*Agent, error) {
+	if c.agentName == "" {
+		return nil, nil
+	}
+	agents, err := c.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var match []Agent
+	for _, a := range agents {
+		if a.Name == c.agentName {
+			match = append(match, a)
+		}
+	}
+	if len(match) != 1 {
+		return nil, nil
+	}
+	c.agentID = match[0].AgentID
+	adopted := match[0]
+	return &adopted, nil
+}
+
 // ResolveAgentID accepts an agent ID or display name and returns the ID.
 // An exact ID match wins; otherwise the name must identify exactly one
 // agent in the project.
