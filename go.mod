@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	github.com/mark3labs/mcp-go v0.43.2
-	github.com/mistakeknot/interbase/go v0.1.1
+	github.com/mistakeknot/interbase/go v0.1.2
 )
 
 require (
