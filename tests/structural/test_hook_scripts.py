@@ -36,6 +36,8 @@ class FakeIntermute:
         self.agents = agents
         self.agent_reservations = agent_reservations or []
         self.post_only_reservations = []  # holds the POST sees but the list does not (race)
+        self.inbox = []  # messages served by GET /api/inbox/<agent>
+        self.gets = []
         self.posts = []
         self.deletes = []
         fake = self
@@ -55,14 +57,16 @@ class FakeIntermute:
             def do_GET(self):
                 url = urlparse(self.path)
                 qs = parse_qs(url.query)
+                fake.gets.append(self.path)
+                if url.path.startswith("/api/inbox/"):
+                    self._send(200, {"messages": fake.inbox, "cursor": len(fake.inbox)})
+                    return
                 if url.path == "/api/reservations" and "agent" in qs:
                     self._send(200, {"reservations": fake.agent_reservations})
                 elif url.path == "/api/reservations":
                     self._send(200, {"reservations": fake.reservations})
                 elif url.path == "/api/agents":
                     self._send(200, {"agents": fake.agents})
-                elif url.path.startswith("/api/messages/inbox"):
-                    self._send(200, {"messages": []})
                 else:
                     self._send(404, {"error": "not found"})
 
@@ -279,9 +283,9 @@ class TestPostCommitHook:
 class TestPreEditHook:
     """The PreToolUse hook end to end: stdin JSON in, block decision or nothing out."""
 
-    def _run(self, repo, fake, path):
+    def _run(self, repo, fake, path, session="sess-1"):
         hook_input = json.dumps({
-            "session_id": "sess-1",
+            "session_id": session,
             "cwd": str(repo),
             "tool_name": "Edit",
             "tool_input": {"file_path": str(repo / path), "old_string": "a", "new_string": "b"},
@@ -296,7 +300,7 @@ class TestPreEditHook:
                 INTERMUTE_AGENT_NAME="me",
                 INTERMUTE_PROJECT="proj",
                 INTERLOCK_PROJECT_ROOT=str(repo),
-                CLAUDE_SESSION_ID="sess-1",
+                CLAUDE_SESSION_ID=session,
             ),
             capture_output=True,
             text=True,
@@ -354,3 +358,20 @@ class TestPreEditHook:
         out = json.loads(proc.stdout.strip().splitlines()[-1])
         assert out["decision"] == "block"
         assert "peer" in out["reason"] and "late" in out["reason"]
+
+    def test_inbox_poll_uses_real_route_and_acks_as_the_agent(self, tmp_path):
+        """A peer's commit notification is read from /api/inbox/<agent> and acknowledged
+        with the agent in the body; the old /api/messages/inbox route answered 405."""
+        import uuid
+        repo = _git_repo(tmp_path)
+        fake = FakeIntermute([], AGENTS)
+        fake.inbox = [{"id": "m-commit", "from": "other", "subject": "commit:abc1234",
+                       "body": json.dumps({"type": "commit", "hash": "abc1234"}), "cursor": 1}]
+        try:
+            proc = self._run(repo, fake, "README.md", session=str(uuid.uuid4()))
+        finally:
+            fake.stop()
+        assert proc.returncode == 0, proc.stderr
+        assert any(g.startswith("/api/inbox/us?") for g in fake.gets), fake.gets
+        acks = [p for p in fake.posts if p[0] == "/api/messages/m-commit/ack"]
+        assert acks and acks[0][1] == {"agent": "us"}, fake.posts

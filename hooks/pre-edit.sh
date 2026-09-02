@@ -70,7 +70,9 @@ if [[ ! -f "$PULL_FLAG" ]] || ! find "$PULL_FLAG" -mmin -0.5 -print -quit 2>/dev
     # Cache expired (or first check) — touch flag and query inbox
     touch "$PULL_FLAG" 2>/dev/null || true
 
-    INBOX_JSON=$(intermute_curl GET "/api/messages/inbox?agent=${INTERMUTE_AGENT_ID}&unread=true" 2>/dev/null) || INBOX_JSON=""
+    # intermute's inbox route is /api/inbox/{agent}; the old /api/messages/inbox path answered 405 (#8).
+    INBOX_PROJECT="${INTERMUTE_PROJECT:-$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)}"
+    INBOX_JSON=$(intermute_curl GET "/api/inbox/${INTERMUTE_AGENT_ID}?project=${INBOX_PROJECT}&limit=50" 2>/dev/null) || INBOX_JSON=""
 
     if [[ -n "$INBOX_JSON" ]] && command -v jq &>/dev/null; then
         COMMIT_MSGS=$(echo "$INBOX_JSON" | jq -r '
@@ -89,7 +91,7 @@ if [[ ! -f "$PULL_FLAG" ]] || ! find "$PULL_FLAG" -mmin -0.5 -print -quit 2>/dev
 
             # Acknowledge commit messages so we don't re-process them
             echo "$COMMIT_MSGS" | jq -r '.[].id // empty' 2>/dev/null | while IFS= read -r msg_id; do
-                [[ -n "$msg_id" ]] && intermute_curl POST "/api/messages/${msg_id}/ack" 2>/dev/null || true
+                [[ -n "$msg_id" ]] && intermute_curl POST "/api/messages/${msg_id}/ack" -H "Content-Type: application/json" -d "{\"agent\":\"${INTERMUTE_AGENT_ID}\"}" >/dev/null 2>&1 || true
             done
 
             # Emit advisory context about the pull (if we have something to say)
@@ -109,7 +111,8 @@ if [[ "${INTERLOCK_AUTO_RELEASE:-0}" == "1" ]]; then
         touch "$NEG_FLAG" 2>/dev/null || true
 
         # Fetch inbox with circuit breaker (fail-open on timeout/error)
-        NEG_INBOX=$(intermute_curl_fast GET "/api/messages/inbox?agent=${INTERMUTE_AGENT_ID}&unread=true&limit=50" 2>/dev/null) || NEG_INBOX=""
+        NEG_PROJECT="${INTERMUTE_PROJECT:-$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)}"
+        NEG_INBOX=$(intermute_curl_fast GET "/api/inbox/${INTERMUTE_AGENT_ID}?project=${NEG_PROJECT}&limit=50" 2>/dev/null) || NEG_INBOX=""
 
         if [[ -n "$NEG_INBOX" ]]; then
             # Find release-request messages

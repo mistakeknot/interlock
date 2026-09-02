@@ -13,7 +13,8 @@ Found by running five agents through interlock on one checkout (2026-09-02).
 - `INTERLOCK_AGENT_NAME` is honoured by the session-start registration ahead of any per-user name file, so the hook and the MCP server carry one name; the hook treats a hold by an agent with its own name as its own (#4, interim).
 - Commit notifications are addressed to real agent ids; they used to go out to a list of empty strings (#5). The post-commit auto-release had the same jq mistake and never released anything, and its DELETE carried no agent header, which intermute answers with 403.
 - The post-commit hook no longer prints intermute's reply into git's output (#6), and it now sees the files of a repository's first commit.
-- Tests: `tests/structural/test_hook_scripts.py` runs the check script and the post-commit hook against a fake intermute.
+- `fetch_inbox` pages: it sends intermute's `since_cursor`, returns the server's position as `next_cursor`, and caps a page at 50. It used to send a parameter intermute ignores and read a field intermute never sets, so every call returned the whole history, and one lane's inbox outgrew the client's output limit (#8). The pre-edit hook's inbox poll now uses the real route and acknowledges as the agent.
+- Tests: `tests/structural/test_hook_scripts.py` runs the check script, the pre-edit hook, and the post-commit hook against a fake intermute.
 
 ## [0.2.19] - 2026-09-01
 

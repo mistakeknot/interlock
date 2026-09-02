@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -351,6 +352,9 @@ func TestFetchThread_NotFound(t *testing.T) {
 			}), nil
 		case r.URL.Path == "/api/inbox/a1":
 			inboxCalls++
+			if r.URL.Query().Get("since_cursor") != "" {
+				return jsonResponse(http.StatusOK, map[string]any{"messages": []map[string]any{}, "cursor": 2}), nil
+			}
 			return jsonResponse(http.StatusOK, map[string]any{
 				"messages": []map[string]any{
 					{
@@ -366,7 +370,7 @@ func TestFetchThread_NotFound(t *testing.T) {
 						"thread_id": "t2",
 					},
 				},
-				"next_cursor": "",
+				"cursor": 2,
 			}), nil
 		default:
 			return jsonResponse(http.StatusNotFound, map[string]any{"error": "not found"}), nil
@@ -507,6 +511,9 @@ func TestCheckExpiredNegotiations_AdvisoryOnly(t *testing.T) {
 	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/inbox/"):
+			if r.URL.Query().Get("since_cursor") != "" {
+				return jsonResponse(http.StatusOK, map[string]any{"messages": []map[string]any{}, "cursor": 1}), nil
+			}
 			return jsonResponse(http.StatusOK, map[string]any{
 				"messages": []map[string]any{
 					{
@@ -518,7 +525,7 @@ func TestCheckExpiredNegotiations_AdvisoryOnly(t *testing.T) {
 						"created_at": "2020-01-01T00:00:00Z",
 					},
 				},
-				"next_cursor": "",
+				"cursor": 1,
 			}), nil
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/threads/"):
 			return jsonResponse(http.StatusOK, map[string]any{
@@ -951,5 +958,45 @@ func TestResolveAgentID(t *testing.T) {
 	}
 	if _, err := c.ResolveAgentID(ctx, "nobody"); err == nil {
 		t.Fatal("unknown name should error")
+	}
+}
+
+func TestFetchInbox_UsesSinceCursorAndReturnsPosition(t *testing.T) {
+	t.Parallel()
+
+	var gotQuery url.Values
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("a1"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/inbox/a1" {
+			return jsonResponse(http.StatusNotFound, map[string]any{"error": "not found"}), nil
+		}
+		gotQuery = r.URL.Query()
+		return jsonResponse(http.StatusOK, map[string]any{
+			"messages": []map[string]any{{"id": "m7", "from": "a2", "body": "{}", "cursor": 7}},
+			"cursor":   7,
+		}), nil
+	})
+
+	msgs, next, err := c.FetchInbox(context.Background(), "5")
+	if err != nil {
+		t.Fatalf("FetchInbox: %v", err)
+	}
+	if gotQuery.Get("since_cursor") != "5" {
+		t.Fatalf("since_cursor = %q, want 5 (query %v)", gotQuery.Get("since_cursor"), gotQuery)
+	}
+	if gotQuery.Get("limit") == "" {
+		t.Fatalf("limit not sent: %v", gotQuery)
+	}
+	if len(msgs) != 1 || next != "7" {
+		t.Fatalf("got %d messages, next %q; want 1 and \"7\"", len(msgs), next)
+	}
+
+	// An empty page reports "" so paging loops stop; the caller keeps its own cursor.
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, map[string]any{"messages": []map[string]any{}, "cursor": 7}), nil
+	})
+	_, next, err = c.FetchInbox(context.Background(), "7")
+	if err != nil || next != "" {
+		t.Fatalf("empty page: next %q err %v; want \"\"", next, err)
 	}
 }
