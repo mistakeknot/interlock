@@ -77,7 +77,44 @@ commands/                join, leave, status, setup
 hooks/                   PreToolUse (advisory), PostToolUse, git pre-commit
 ```
 
-11 MCP tools cover the full reservation lifecycle. Connects to intermute via Unix socket (preferred) or TCP fallback.
+20 MCP tools cover the full reservation lifecycle (see [Tools](#tools) below). Connects to intermute via Unix socket (preferred) or TCP fallback.
+
+## Tools
+
+Reservations:
+
+- `reserve_files` — reserve file patterns before editing; blocks other agents from touching them
+- `release_files` — release specific reservations by ID
+- `release_all` — release all your active reservations at once
+- `my_reservations` — list your current active reservations
+- `check_conflicts` — dry-run conflict check for file patterns (creates no reservation)
+
+Negotiation:
+
+- `negotiate_release` — ask another agent to release a file, with urgency and optional blocking wait
+- `respond_to_release` — resolve a negotiation: release now, or defer with an ETA
+- `force_release_negotiation` — force-release a reservation after a negotiation has timed out
+- `request_release` (deprecated) — legacy release-request tool; use `negotiate_release`
+- `expire_window` — soft-delete a window identity by setting its expiration to now
+
+Messaging:
+
+- `send_message` — send a message to another agent
+- `broadcast_message` — send a message to every agent in the project
+- `fetch_inbox` — check your inbox for messages from other agents
+- `fetch_stale_acks` — find messages needing acknowledgment that missed their TTL
+- `list_topic_messages` — list messages by topic, for late-joining or oversight agents
+
+Agents and identity:
+
+- `list_agents` — list agents registered with intermute, optionally filtered by capability
+- `list_window_identities` — list active window identities (tmux window UUID to persistent agent ID) for this project
+- `rename_window` — update the display name for a window identity
+
+Contact policy:
+
+- `get_contact_policy` — get your agent's current contact policy
+- `set_contact_policy` — set who can message you: open, auto, contacts_only, or block_all
 
 ## Design decisions
 

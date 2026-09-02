@@ -551,3 +551,14 @@ class TestVersionAgreement:
         m = re.search(r'var version = "([^"]+)"', main_go)
         assert m, "main.go must declare var version"
         assert m.group(1) == manifest == kimi
+
+
+class TestToolDocumentation:
+    def test_every_tool_is_documented_in_readme(self, project_root):
+        import re
+        tools_go = (project_root / "internal" / "tools" / "tools.go").read_text()
+        tools = set(re.findall(r'mcp\.NewTool\("([a-z_]+)"', tools_go))
+        readme = (project_root / "README.md").read_text()
+        missing = sorted(t for t in tools if f"`{t}`" not in readme)
+        assert tools, "no tools found in tools.go"
+        assert not missing, f"tools missing from README.md: {missing}"

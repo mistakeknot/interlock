@@ -11,7 +11,7 @@ MCP server for intermute-backed file reservation and agent coordination. Compani
 |------|-------|
 | Namespace | `interlock:` |
 | Manifest | `.claude-plugin/plugin.json` |
-| Components | 11 tools, 4 commands, 2 skills, 3 hooks |
+| Components | 20 tools, 4 commands, 2 skills, 3 hooks |
 | Binary | `bin/interlock-mcp` |
 
 ## MCP Tools (11 total)
