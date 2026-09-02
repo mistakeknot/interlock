@@ -1,5 +1,7 @@
 # interlock
 
+[![CI](https://github.com/mistakeknot/interlock/actions/workflows/ci.yml/badge.svg)](https://github.com/mistakeknot/interlock/actions/workflows/ci.yml)
+
 File coordination for coding agents that share a checkout: reserve, negotiate, release. Ships as a Claude Code plugin and works with any MCP client.
 
 ## What this does
