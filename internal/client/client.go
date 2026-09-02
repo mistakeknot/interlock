@@ -558,8 +558,9 @@ func (c *Client) checkConflictsEndpoint(ctx context.Context, pattern string) ([]
 
 // RegisterAgent registers this agent with intermute.
 func (c *Client) RegisterAgent(ctx context.Context) (*Agent, error) {
+	// intermute issues agent IDs; a client-chosen ID is not honored. The
+	// client adopts the ID (and the token bound to it) the server returns.
 	body := map[string]any{
-		"id":      c.agentID,
 		"name":    c.agentName,
 		"project": c.project,
 	}
@@ -567,10 +568,40 @@ func (c *Client) RegisterAgent(ctx context.Context) (*Agent, error) {
 	if err := c.doJSON(ctx, "POST", "/api/agents", body, &agent); err != nil {
 		return nil, err
 	}
+	if agent.AgentID != "" {
+		c.agentID = agent.AgentID
+	}
 	if agent.Token != "" {
 		c.agentToken = agent.Token
 	}
 	return &agent, nil
+}
+
+// ResolveAgentID accepts an agent ID or display name and returns the ID.
+// An exact ID match wins; otherwise the name must identify exactly one
+// agent in the project.
+func (c *Client) ResolveAgentID(ctx context.Context, nameOrID string) (string, error) {
+	agents, err := c.ListAgents(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list agents: %w", err)
+	}
+	var byName []string
+	for _, a := range agents {
+		if a.AgentID == nameOrID {
+			return a.AgentID, nil
+		}
+		if a.Name == nameOrID {
+			byName = append(byName, a.AgentID)
+		}
+	}
+	switch len(byName) {
+	case 0:
+		return "", fmt.Errorf("no agent with id or name %q", nameOrID)
+	case 1:
+		return byName[0], nil
+	default:
+		return "", fmt.Errorf("name %q matches %d agents (%s); use the id", nameOrID, len(byName), strings.Join(byName, ", "))
+	}
 }
 
 // ListAgents lists agents for the configured project.

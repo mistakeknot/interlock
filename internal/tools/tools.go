@@ -493,10 +493,15 @@ func negotiateRelease(c *client.Client) server.ServerTool {
 				return toToolError(err), nil
 			}
 
+			// agent_name may be a display name; conflict cards carry IDs.
+			wantID := agentName
+			if resolved, err := c.ResolveAgentID(ctx, agentName); err == nil {
+				wantID = resolved
+			}
 			holderID := ""
 			reservationID := ""
 			for _, conflict := range conflicts {
-				if conflict.AgentID == agentName || conflict.HeldBy == agentName {
+				if conflict.AgentID == wantID || conflict.HeldBy == wantID || conflict.AgentID == agentName || conflict.HeldBy == agentName {
 					holderID = conflict.AgentID
 					reservationID = conflict.ReservationID
 					break

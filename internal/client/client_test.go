@@ -890,7 +890,7 @@ func TestRegisterAgent_StoresTokenAndSendsHeader(t *testing.T) {
 	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		seenToken = append(seenToken, r.Header.Get("X-Agent-Token"))
 		if r.Method == http.MethodPost && r.URL.Path == "/api/agents" {
-			return jsonResponse(http.StatusOK, map[string]any{"agent_id": "a1", "name": "alpha", "token": "t1"}), nil
+			return jsonResponse(http.StatusOK, map[string]any{"agent_id": "srv-a1", "name": "alpha", "token": "t1"}), nil
 		}
 		return jsonResponse(http.StatusOK, map[string]any{"agents": []any{}}), nil
 	})
@@ -901,6 +901,9 @@ func TestRegisterAgent_StoresTokenAndSendsHeader(t *testing.T) {
 	}
 	if agent.Token != "t1" || c.AgentToken() != "t1" {
 		t.Fatalf("token not stored: agent=%+v client=%q", agent, c.AgentToken())
+	}
+	if c.AgentID() != "srv-a1" {
+		t.Fatalf("client must adopt the server-issued id, got %q", c.AgentID())
 	}
 	if _, err := c.ListAgents(context.Background()); err != nil {
 		t.Fatalf("ListAgents() error = %v", err)
@@ -922,5 +925,31 @@ func TestRegisterAgent_FailureLeavesNoToken(t *testing.T) {
 	}
 	if c.AgentToken() != "" {
 		t.Fatalf("token should stay empty after a failed registration, got %q", c.AgentToken())
+	}
+}
+
+func TestResolveAgentID(t *testing.T) {
+	t.Parallel()
+
+	c := NewClient(WithBaseURL("http://intermute.local"), WithAgentID("me"), WithProject("p1"))
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, map[string]any{"agents": []map[string]any{
+			{"agent_id": "id-1", "name": "alpha"},
+			{"agent_id": "id-2", "name": "beta"},
+			{"agent_id": "id-3", "name": "beta"},
+		}}), nil
+	})
+	ctx := context.Background()
+	if got, _ := c.ResolveAgentID(ctx, "id-1"); got != "id-1" {
+		t.Fatalf("id passthrough = %q", got)
+	}
+	if got, _ := c.ResolveAgentID(ctx, "alpha"); got != "id-1" {
+		t.Fatalf("name alpha = %q, want id-1", got)
+	}
+	if _, err := c.ResolveAgentID(ctx, "beta"); err == nil || !strings.Contains(err.Error(), "matches 2 agents") {
+		t.Fatalf("ambiguous name should error, got %v", err)
+	}
+	if _, err := c.ResolveAgentID(ctx, "nobody"); err == nil {
+		t.Fatal("unknown name should error")
 	}
 }

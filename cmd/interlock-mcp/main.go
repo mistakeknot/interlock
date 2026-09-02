@@ -47,12 +47,21 @@ func main() {
 	}
 }
 
+// registerSelf registers this process as an agent unless the environment
+// already carries an intermute-issued ID (the session-start hook path), in
+// which case that identity is kept as is.
 func registerSelf(c *client.Client) {
+	if os.Getenv("INTERLOCK_AGENT_ID") != "" || os.Getenv("INTERMUTE_AGENT_ID") != "" {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := c.RegisterAgent(ctx); err != nil {
+	agent, err := c.RegisterAgent(ctx)
+	if err != nil {
 		log.Printf("interlock-mcp: registration skipped: %v", err)
+		return
 	}
+	log.Printf("interlock-mcp: registered as %s (%s)", agent.AgentID, agent.Name)
 }
 
 func getAgentID() string {
