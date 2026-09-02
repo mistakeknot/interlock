@@ -220,7 +220,7 @@ ENDJSON
 
 # --- If conflict found: BLOCK the edit ---
 if [[ -n "$CONFLICT" ]]; then
-    HELD_BY=$(echo "$CONFLICT" | jq -r '.held_by // "unknown"' 2>/dev/null) || HELD_BY="unknown"
+    HELD_BY=$(echo "$CONFLICT" | jq -r '(.held_by_name | select(. != null and . != "")) // .held_by // "unknown"' 2>/dev/null) || HELD_BY="unknown"
     REASON=$(echo "$CONFLICT" | jq -r '.reason // ""' 2>/dev/null) || REASON=""
     EXPIRES=$(echo "$CONFLICT" | jq -r '.expires_at // ""' 2>/dev/null) || EXPIRES=""
 
@@ -276,8 +276,20 @@ RESERVE_PAYLOAD=$(jq -nc \
     --arg reason "auto-reserve: editing" \
     '{agent_id:$agent, project:$project, path_pattern:$pattern, exclusive:true, reason:$reason, ttl_minutes:15}')
 
-intermute_curl POST "/api/reservations" \
-    -H "Content-Type: application/json" \
-    -d "$RESERVE_PAYLOAD" >/dev/null 2>&1 || true
+RESERVE_CODE=$(intermute_post_code "/api/reservations" "$RESERVE_PAYLOAD")
+if [[ "$RESERVE_CODE" == "409" ]]; then
+    # intermute refused the hold because someone else has it (issue #3): block,
+    # unless the holder shares our name, which is our own MCP server (issue #4).
+    HB=$(jq -r '.conflicts[0].held_by // .conflicts[0].agent_id // "another agent"' "${INTERMUTE_LAST_BODY_FILE:-/dev/null}" 2>/dev/null) || HB="another agent"
+    RS=$(jq -r '.conflicts[0].reason // ""' "${INTERMUTE_LAST_BODY_FILE:-/dev/null}" 2>/dev/null) || RS=""
+    rm -f "${INTERMUTE_LAST_BODY_FILE:-}"
+    if [[ -n "${INTERMUTE_AGENT_NAME:-}" && "$HB" == "$INTERMUTE_AGENT_NAME" ]]; then
+        exit 0
+    fi
+    jq -nc --arg fp "$REL_PATH" --arg hb "$HB" --arg rs "$RS" \
+        '{"decision": "block", "reason": ("INTERLOCK: " + $fp + " is exclusively reserved by " + $hb + (if $rs != "" then " (\"" + $rs + "\")" else "" end) + ". Work on other files, use request_release(agent_name=\"" + $hb + "\"), or wait for expiry.")}'
+    exit 0
+fi
+rm -f "${INTERMUTE_LAST_BODY_FILE:-}"
 
 exit 0

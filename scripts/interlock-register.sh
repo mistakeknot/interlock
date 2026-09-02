@@ -11,12 +11,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/../hooks/lib.sh"
 
 # Determine agent name
-AGENT_NAME=""
+# INTERLOCK_AGENT_NAME is the per-session override and is also what the MCP
+# server names itself, so setting it gives the hook and the server one name.
+AGENT_NAME="${INTERLOCK_AGENT_NAME:-}"
 NAME_FILE="${HOME}/.config/interlock/agent-name"
 LEGACY_NAME_FILE="${HOME}/.config/clavain/intermute-agent-name"
-if [[ -f "$NAME_FILE" ]]; then
+if [[ -z "$AGENT_NAME" && -f "$NAME_FILE" ]]; then
     AGENT_NAME="$(head -1 "$NAME_FILE" 2>/dev/null | tr -d '\n')"
-elif [[ -f "$LEGACY_NAME_FILE" ]]; then
+elif [[ -z "$AGENT_NAME" && -f "$LEGACY_NAME_FILE" ]]; then
     AGENT_NAME="$(head -1 "$LEGACY_NAME_FILE" 2>/dev/null | tr -d '\n')"
 fi
 if [[ -z "$AGENT_NAME" ]] && command -v tmux &>/dev/null; then
