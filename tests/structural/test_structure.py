@@ -540,3 +540,14 @@ class TestNegotiationProtocol:
         assert (
             found_advisory_comment
         ), "CheckExpiredNegotiations should have advisory comment"
+
+
+class TestVersionAgreement:
+    def test_main_go_version_matches_manifest(self, project_root):
+        import json, re
+        manifest = json.loads((project_root / ".claude-plugin" / "plugin.json").read_text())["version"]
+        kimi = json.loads((project_root / "kimi.plugin.json").read_text())["version"]
+        main_go = (project_root / "cmd" / "interlock-mcp" / "main.go").read_text()
+        m = re.search(r'var version = "([^"]+)"', main_go)
+        assert m, "main.go must declare var version"
+        assert m.group(1) == manifest == kimi

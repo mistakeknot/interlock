@@ -15,6 +15,11 @@ import (
 	"github.com/mistakeknot/interlock/internal/tools"
 )
 
+// version is the release version; set at build time with
+//
+//	go build -ldflags "-X main.version=x.y.z" ./cmd/interlock-mcp
+var version = "0.2.19"
+
 func main() {
 	c := client.NewClient(
 		client.WithSocketPath(os.Getenv("INTERMUTE_SOCKET")),
@@ -34,7 +39,7 @@ func main() {
 	metrics := mcputil.NewMetrics()
 	s := server.NewMCPServer(
 		"interlock",
-		"0.1.0",
+		version,
 		server.WithToolCapabilities(true),
 		server.WithToolHandlerMiddleware(metrics.Instrument()),
 	)

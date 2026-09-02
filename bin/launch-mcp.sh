@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launcher for interlock-mcp: probes known binary paths before falling back to go build.
-# Probe order: cache-local → source-tree (dev) → ~/.local/bin → go build.
+# Probe order: cache-local → ~/.local/bin → go build.
 # Sidesteps envs where `go` is missing from the MCP subprocess PATH.
 set -euo pipefail
 
@@ -10,7 +10,6 @@ BINARY="${SCRIPT_DIR}/interlock-mcp"
 
 for candidate in \
     "$BINARY" \
-    "/home/mk/projects/Sylveste/interverse/interlock/bin/interlock-mcp" \
     "${HOME}/.local/bin/interlock-mcp"
 do
     if [[ -x "$candidate" ]]; then
