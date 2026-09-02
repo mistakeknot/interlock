@@ -1,0 +1,28 @@
+intercache	done	-	no jargon matches found
+intercept	done	-	no README/docs; plugin.json files have no jargon matches
+interchart	done	e060955	fixed personal path in docs/research/find-repos-missing-docs.md; left docs/diagrams/ecosystem.html untouched (out of scope, not .md); left table entry "os/clavain" as a real historical directory path, not prose
+intercheck	done	28bdadd	removed beads/Demarch/Clavain prose in 3 docs; left clavain:executing-plans identifier and docs/roadmap.json (not .md, out of scope)
+intercraft	done	2a8202d	reworded Clavain/Demarch prose in docs/intercraft-vision.md; left docs/roadmap.json (not .md, out of scope)
+interdeep	done	-	no docs dir; README/plugin.json clean
+interdeploy	done	-	no jargon matches found
+interdev	done	d6fd0c5	reworded Demarch/Clavain prose, fixed /root/projects paths in 2 docs; left docs/roadmap.json (not .md, out of scope)
+interdoc	partial	c45fbd8	fixed Demarch/Clavain prose in vision.md and prds/structural-autofix.md; 5 files under docs/plans/ blocked by local guard-plan-needs-card.sh hook (product-card policy, unrelated to jargon task), left unedited (see friction log); docs/roadmap.json n/a here
+interfluence	partial	e008de7	fixed beads/Demarch/paths in 5 docs; 2 files under docs/plans/ blocked by guard-plan-needs-card.sh (product-card policy), left unedited
+interflux	partial	adbae8e	39 files fixed via reviewed bulk substitution (personal paths, Demarch->Sylveste, Clavain prose->the host plugin); 61 residual lowercase clavain path/identifier hits left (os/clavain/..., .clavain/...) as real file-path citations to another repo; docs/plans/2026-02-22-flux-gen-precheck.md blocked by guard-plan-needs-card.sh, left unedited
+interform	done	ff9cdbf	reworded Clavain prose in docs/interform-vision.md; left docs/roadmap.json (not .md, out of scope)
+intergraph	done	bb74503	replaced beads prose in README.md
+interhelm	done	cb571ff	removed PHILOSOPHY.md prose reference + empty Design Decisions section in README.md; left PHILOSOPHY.md as a real filename in the fenced dir-tree listing
+interject	partial	4d8670c	fixed beads/Clavain prose in README, plugin.json, kimi.plugin.json, brainstorm doc; docs/plans/2026-02-15-interject-integration-sweep.md blocked by guard-plan-needs-card.sh (has Clavain+bead+/root/projects hits, mostly inside python code blocks); docs/plans/2026-02-15-interject-design.md and 3 other plan files also blocked (bead-only hits); docs/roadmap.json out of scope
+interkasten	partial	2b0a80e	fixed /root/projects paths (15 files) + 2 PHILOSOPHY.md prose refs; deliberately left ALL beads/bd mentions untouched (this plugin literally syncs the Beads issue tracker to Notion, so "beads" is accurate subject matter/identifiers, not internal jargon standing in for "issue"); left clavain mentions (all lowercase identifiers/catalog entries, none in prose); docs/plans/*.md (3 files) blocked by guard-plan-needs-card.sh; findings.json out of scope (not .md)
+interknow	done	-	only hit was os/clavain/lib/lib-sprint.sh, a real file-path identifier; nothing to edit
+interlab	partial	135c028	fixed Demarch->Sylveste and Clavain prose in 6 docs; left all beads/bd mentions (interlab genuinely couples to the Beads issue tracker for campaign coordination, same reasoning as interkasten) and literal Demarch-XXXX bead-ID identifiers (historical, cant rename); docs/plans/2026-03-14-multi-campaign-orchestration.md blocked by guard-plan-needs-card.sh; docs/roadmap.json out of scope (huge, not .md)
+interlearn	done	08281d4	fixed /root/projects path in README, PHILOSOPHY.md ref in vision doc
+interleave	done	-	only hits were beads/bd as the actual queried data source (roadmap generator); no Demarch/Clavain/path/PHILOSOPHY issues
+interlens	done	e957cc4	fixed /root/projects paths + Clavain prose in 7 research/brainstorm docs; left beads/bd mentions (legit systems-analysis subject matter in fd-systems review docs) and one direct quote of another files literal text; docs/roadmap.json out of scope
+interline	partial	aab7698	fixed Clavain/Demarch prose in README, vision doc, plugin.json/kimi.plugin.json, brainstorm path; left beads/bd (real integration), lowercase clavain-*.json path identifiers, and Clavain-XXXX bead-ID + statusline-output examples in brainstorm doc; docs/plans/2026-02-12-statusline-improvements.md blocked by guard-plan-needs-card.sh
+interlock	done	-	only hits are beads/bd, literally citing the real open-source Beads project (github.com/steveyegge/beads) that interlocks reservation metadata format is built on; no Demarch/Clavain/PHILOSOPHY/path issues
+interloop	done	-	no jargon matches found
+interlore	partial	5b93957	fixed Demarch->Sylveste in README.md; deliberately left all PHILOSOPHY.md mentions in README/plugin.json/kimi.plugin.json (interlores entire product IS PHILOSOPHY.md maintenance -- exact analog of a README-generator saying README.md; not incidental jargon, rule 4 does not fit here)
+intermap	done	b531fa4	bulk-fixed personal paths (/home/mk/projects/Demarch, /root/projects/Interverse) + Demarch->Sylveste + 2 PHILOSOPHY.md refs + 1 Clavain-prose sentence across 17 files; left fd-architecture-review.md clavain mentions (used consistently lowercase as a plugin-name identifier throughout, like interlock/interflux); no docs/plans/ files affected here (none had flagged terms)
+intermem	partial	914ddeb	bulk-fixed personal paths + Demarch->Sylveste + roadmap boilerplate + all capital-C Clavain prose (~50 instances) across 16 files; left lowercase .clavain/ path identifiers; docs/plans/2026-02-17-intermem-memory-synthesis.md and docs/plans/2026-02-18-intermem-phase1-validation-overlay.md blocked by guard-plan-needs-card.sh
+intermix	done	-	no jargon matches found
