@@ -13,7 +13,7 @@ Message bodies are JSON with a `type` field. The intermute `subject` mirrors the
 | Type | Direction | Body fields |
 |---|---|---|
 | `release-request` | requester → holder | `file`, `reason`, `requester` (display name), `requester_id`, `holder` (agent ID), `reservation_id`, `urgency`, `thread_id` |
-| `release-ack` | holder → requester | `file`, `released: true`, `released_by`, `released_cnt`; on escalation also `forced: true`, `reason: "escalation-timeout"` |
+| `release-ack` | holder → requester (or requester → holder when forced) | `file`, `released: true`, `released_by`, `released_cnt`; on escalation also `forced: true`, `reason: "escalation-timeout"` |
 | `release-defer` | holder → requester | `file`, `eta_minutes` (0–60), `reason`, `released: false` |
 
 ## Sequence
@@ -67,7 +67,7 @@ Preconditions, all checked by the requester's client against the thread as store
 
 4. The caller is the requester recorded on the thread.
 
-If the preconditions hold, the requester releases the pinned reservation (see § Reservation pinning), sends a `release-ack` with `forced: true` to the holder (only when something was actually released, to avoid thread noise), records an `escalation` signal, and returns `force_released` (or `already_released` when the reservations had already expired). `reason` is stored for the audit trail.
+If the preconditions hold, the requester releases the pinned reservation (see § Reservation pinning), sends a `release-ack` with `forced: true` to the holder (only when something was actually released, to avoid thread noise), records an `escalation` signal, and returns `force_released`; if the pinned reservation is gone or held by someone else it returns `reservation_changed` and releases nothing (`already_released` is only reachable for threads from older clients that carry no reservation id). `reason` is stored for the audit trail.
 
 If intermute cannot be reached for the liveness check, the call falls back to the time window alone; it never blocks on the failure.
 

@@ -17,7 +17,7 @@ When you try to reserve or edit a file held by another agent, you hit a conflict
 ## Recovery Ladder
 
 ### Step 1: Check Status
-Call `check_conflicts` to see bead-aware collision cards:
+Call `check_conflicts` to see collision cards keyed by Beads issue IDs ([beads](https://github.com/steveyegge/beads)):
 - Who holds the reservation (agent name + ID)
 - Why (the reason string)
 - Which bead/thread is reported, when available (`active_bead_id`, `bead_id`, `thread_id`)

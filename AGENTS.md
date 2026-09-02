@@ -14,22 +14,52 @@ MCP server for intermute-backed file reservation and agent coordination. Works s
 | Components | 20 tools, 4 commands, 2 skills, 3 hooks |
 | Binary | `bin/interlock-mcp` |
 
-## MCP Tools (11 total)
+## MCP Tools (20)
+
+Reservations
 
 | Tool | Purpose |
 |------|---------|
 | `reserve_files` | Reserve one or more file patterns before editing. |
 | `release_files` | Release reservations by reservation ID. |
 | `release_all` | Release all active reservations for the current agent. |
-| `check_conflicts` | Dry-run conflict check for file patterns. |
+| `check_conflicts` | Dry-run conflict check for file patterns; returns collision cards. |
 | `my_reservations` | List current active reservations for this agent. |
-| `send_message` | Send a direct message to another agent. |
-| `fetch_inbox` | Fetch inbox messages and run negotiation-timeout checks. |
-| `list_agents` | List active agents in the current project. |
-| `request_release` | Legacy release request tool (deprecated; use negotiation tools). |
-| `negotiate_release` | Start a release negotiation with urgency + optional blocking wait. |
-| `respond_to_release` | Resolve negotiation by releasing now or deferring with ETA. |
-| `force_release_negotiation` | Escalation: force-release after negotiation timeout (requester-initiated). |
+
+Negotiation
+
+| Tool | Purpose |
+|------|---------|
+| `negotiate_release` | Ask a holder to release, with urgency and optional blocking wait; pins the reservation. |
+| `respond_to_release` | Holder releases now or defers with an ETA (max 60 minutes). |
+| `force_release_negotiation` | Requester escalates after the window elapses; releases only the pinned reservation. |
+| `request_release` | Deprecated one-shot request without a thread; use `negotiate_release`. |
+| `expire_window` | Soft-delete a window identity when an agent leaves for good. |
+
+Messaging
+
+| Tool | Purpose |
+|------|---------|
+| `send_message` | Direct message to another agent (optionally live into its tmux pane). |
+| `broadcast_message` | Message every agent in the project. |
+| `fetch_inbox` | Read this agent's inbox, cursor-paginated. |
+| `fetch_stale_acks` | Ack-required messages nobody acknowledged in time. |
+| `list_topic_messages` | Messages on a named topic. |
+
+Agents and identity
+
+| Tool | Purpose |
+|------|---------|
+| `list_agents` | Agents registered in the project, optionally by capability. |
+| `list_window_identities` | Persistent window UUID to agent mappings. |
+| `rename_window` | Set the display name on a window identity. |
+
+Contact policy
+
+| Tool | Purpose |
+|------|---------|
+| `get_contact_policy` | Read this agent's contact policy. |
+| `set_contact_policy` | Set it: open, auto, contacts_only, or block_all. |
 
 ## Negotiation Protocol
 

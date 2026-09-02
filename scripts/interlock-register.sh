@@ -50,7 +50,9 @@ if [[ -d "$PLUGIN_CACHE" ]]; then
 fi
 
 # 2. Merge per-agent override file (backward compatible supplement)
-CAPS_FILE="${HOME}/.config/clavain/capabilities-${AGENT_NAME}.json"
+CAPS_FILE="${HOME}/.config/interlock/capabilities-${AGENT_NAME}.json"
+LEGACY_CAPS_FILE="${HOME}/.config/clavain/capabilities-${AGENT_NAME}.json"  # LEGACY location, read if the new one is absent
+[[ -f "$CAPS_FILE" ]] || CAPS_FILE="$LEGACY_CAPS_FILE"
 if [[ -f "$CAPS_FILE" ]]; then
     AGENT_CAPS=$(jq -c '.' "$CAPS_FILE" 2>/dev/null)
     if [[ -n "$AGENT_CAPS" ]] && [[ "$AGENT_CAPS" != "null" ]]; then

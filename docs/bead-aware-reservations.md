@@ -1,6 +1,6 @@
 # Bead-aware reservations
 
-Interlock v0 represents bead correlation in reservation **reason** metadata because the current Intermute reservation schema has no first-class `metadata` column.
+Interlock v0 represents Beads issue IDs ([beads](https://github.com/steveyegge/beads)) correlation in reservation **reason** metadata because the current Intermute reservation schema has no first-class `metadata` column.
 
 This is intentionally a compact compatibility convention, not a new task-state source of truth. Beads remains canonical for task state; Interlock reservations are live coordination hints for file/path intent.
 
@@ -84,4 +84,4 @@ Reservation state:
 
 ## Prior-art boundary
 
-This intentionally reuses the useful MCP Agent Mail pattern of file reservations plus release negotiation, but does not adopt its installer, authority model, or environment mutations wholesale. Interlock remains the Clavain/Sylveste adapter over Intermute reservations.
+This intentionally reuses the useful MCP Agent Mail pattern of file reservations plus release negotiation, but does not adopt its installer, authority model, or environment mutations wholesale. Interlock stays a thin adapter over intermute reservations.

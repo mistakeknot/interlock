@@ -4,7 +4,7 @@
 
 ## Overview
 
-MCP server wrapping intermute's HTTP API for file reservation and agent coordination. 20 tools, 4 commands, 2 skills, 3 hooks. Companion plugin for Clavain.
+MCP server wrapping intermute's HTTP API for file reservation and agent coordination. 20 tools, 4 commands, 2 skills, 3 hooks.
 
 ## Negotiation Protocol
 
@@ -29,5 +29,5 @@ python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
 
 - Go binary for MCP server (mark3labs/mcp-go), bash for hooks
 - Unix socket preferred, TCP fallback for intermute connection
-- Advisory-only PreToolUse:Edit hook, mandatory git pre-commit enforcement
-- Join-flag gating: all hooks check ~/.config/clavain/intermute-joined
+- PreToolUse:Edit hook blocks edits to files another agent holds exclusively (warning-only when the optional region check clears it or intermute is down); git pre-commit hook is the backstop
+- Join-flag gating: all hooks check ~/.config/interlock/joined (older installs: the previous config directory, still honored)
