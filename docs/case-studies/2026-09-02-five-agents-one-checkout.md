@@ -24,7 +24,7 @@ The lanes ran from 13:17 to 14:03 PDT. In that hour:
 | Commit notifications delivered | 203 |
 | Acceptance after the run | scaffold 56/56, CI 56/56, release 55/56, jargon 29/56 by the strict line |
 
-Every conflict resolved. Not one resolved through the negotiation protocol working end to end as designed: the three acks that were sent all reported zero reservations released, because the holder had already released after committing, and the six unanswered requests either reached a holder who had also already finished or reached the wrong half of a split identity. Agents got their files by coming back later and trying again. The reservation layer prevented every collision; the messaging layer around it did not carry its weight.
+Every conflict resolved. Not one resolved through the negotiation protocol working end to end as designed: the three acks that were sent all reported zero reservations released, because the holder had already released after committing, and the six unanswered requests either reached a holder who had also already finished or reached the wrong half of a split identity. Agents got their files by coming back later and trying again. The reservation layer prevented every collision; the messaging layer around it didn't carry its weight.
 
 The jargon line's 29/56 is the strict grep over everything under `docs/`. The residue is inside internal artifact directories (research notes, brainstorms, old plans, generated `roadmap.json`, diagrams), plus a handful of terms that are the product itself: interlore proposes changes to a file called PHILOSOPHY.md, and intername ships a naming theme called Demarch. Whether those artifact directories belong in public repositories at all is a separate decision. The user-facing files are clean.
 
@@ -34,11 +34,11 @@ The jargon line's 29/56 is the strict grep over everything under `docs/`. The re
 2. **One session was two agents** (interlock #4). The session-start hook and the MCP server register separately, and a four-month-old legacy name file was naming the hook's half after a project nobody had touched since May. During the run this surfaced as `negotiate_release` failing on a file the conflict card said was held: the holder's MCP row had released, its hook row still held a 15-minute auto-reserve, and the name resolved to both. An interim rule shipped (a hold by an agent with your own name is yours); the real fix is one identity per session.
 3. **Commit notifications went nowhere** (interlock #5). The post-commit hook read `.id` where the API returns `agent_id`, addressed its notification to a list of empty strings, and its auto-release sent a DELETE without the agent header intermute requires. Fixed.
 4. **Every commit printed JSON into git's output** (interlock #6). Fixed.
-5. **The inbox never paged** (interlock #8). The client sent a cursor parameter intermute does not read and read a field intermute does not set. Once #5 was fixed and commit broadcasts started arriving, every lane's inbox grew with every other lane's commits until the tool's result outgrew the client's output limit; three of five lanes cut their polling on purpose and said so. The hook's own inbox poll hit a route that returns 405. Fixed; the fan-out design question stays open.
+5. **The inbox never paged** (interlock #8). The client sent a cursor parameter intermute doesn't read and read a field intermute doesn't set. Once #5 was fixed and commit broadcasts started arriving, every lane's inbox grew with every other lane's commits until the tool's result outgrew the client's output limit; three of five lanes cut their polling on purpose and said so. The hook's own inbox poll hit a route that returns 405. Fixed; the fan-out design question stays open.
 6. **The hook watches the wrong tools** (interlock #9). It matches Edit and Write. Autonomous agents write through Bash. Six hook reservations against 782 from the tools.
-7. **intermute accepts holds for agents that do not exist** (intermute #7). A mistyped id produced a reservation nobody could negotiate with.
+7. **intermute accepts holds for agents that don't exist** (intermute #7). A mistyped id produced a reservation nobody could negotiate with.
 8. **intermute stacks a holder's own reservations** (intermute #8). The pre-edit hook reserves the file it is about to edit; four edits of one file in three minutes gave one agent four simultaneous exclusive holds on it, each counting against the per-agent cap and each needing its own release.
-9. **intermux could not see the swarm** (intermux #7, #8). Sessions not named the maintainer's way are filtered out even when a mapping file identifies them, and status is read from the last screen line, which in every current client is a status bar, so all 29 sessions it did see were "unknown".
+9. **intermux couldn't see the swarm** (intermux #7, #8). Sessions not named the maintainer's way are filtered out even when a mapping file identifies them, and status is read from the last screen line, which in every current client is a status bar, so all 29 sessions it did see were "unknown".
 
 ## What the agents said
 
@@ -65,8 +65,8 @@ All nine are fixed in interlock 0.2.20 (#3 to #9), intermute 0.1.1 (#7, #8), and
 - **Reservations work.** Twelve hundred edits by five agents on shared files, no overwrite, no merge conflict, no lost work. Pathspec commits on one branch per repo held up.
 - **Identity is the next fix, not a nicety.** Three of the nine defects and most of the unanswered requests trace to one session being two agents.
 - **Messaging needs an audience model.** Commit notifications to everyone, an inbox that never advances, and release requests that arrive after the holder has moved on all point the same way: messages should go to agents whose reservations overlap, inboxes should page, and a request should carry the reservation id it is about.
-- **Liveness beats TTL.** Every agent asked for the same thing: is the holder still working on this file. intermux exists to answer that and could not see the sessions.
-- **The hook is not the enforcement layer for autonomous agents.** The MCP tools and the pre-commit hook are. The docs should say so.
+- **Liveness beats TTL.** Every agent asked for the same thing: is the holder still working on this file. intermux exists to answer that and couldn't see the sessions.
+- **The hook isn't the enforcement layer for autonomous agents.** The MCP tools and the pre-commit hook are. The docs should say so.
 
 ## Reproduce
 
