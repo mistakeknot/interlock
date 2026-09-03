@@ -10,7 +10,7 @@ When two agents try to edit the same file simultaneously, you get a mess. interl
 
 The workflow: before editing a file, an agent reserves it. If another agent already holds the reservation, interlock offers a negotiated release protocol: the requesting agent sends a `negotiate_release` with urgency and optional blocking wait; the holding agent responds with either a release or a deferral with ETA. This is cooperative, not preemptive.
 
-The pre-edit hook (`PreToolUse` on the Edit and Write tools) blocks an edit to a file another agent holds exclusively. It sees only those tools: an agent that writes files through shell commands is not checked by it, and relies on the MCP tools and the git pre-commit hook instead. It downgrades to a warning when the optional region check (`INTERLOCK_SEMANTIC_ENABLE=1`, off by default) finds no overlap between the two edits, or when intermute is unreachable — coordination fails open, not closed. The git pre-commit hook is the backstop: it blocks a commit that touches a file still reserved by another agent, so a bypassed or missed pre-edit warning can't sneak a conflicting change through.
+The pre-edit hook (`PreToolUse` on the Edit and Write tools) blocks an edit to a file another agent holds exclusively. It sees only those tools: an agent that writes files through shell commands is not checked by it, and relies on the MCP tools and the git pre-commit hook instead. It downgrades to a warning when the optional region check (`INTERLOCK_SEMANTIC_ENABLE=1`, off by default) finds no overlap between the two edits, or when intermute is unreachable (coordination fails open, not closed). The git pre-commit hook is the backstop: it blocks a commit that touches a file still reserved by another agent, so a bypassed or missed pre-edit warning can't sneak a conflicting change through.
 
 ## Installation
 
@@ -26,7 +26,7 @@ Then install the plugin:
 /plugin install interlock
 ```
 
-Requires intermute; see [docs/install.md](docs/install.md) for the standalone path (any MCP client, no Claude Code plugin) — `go install github.com/mistakeknot/intermute/cmd/intermute@latest && intermute serve`.
+Requires intermute; see [docs/install.md](docs/install.md) for the standalone path (any MCP client, no Claude Code plugin). The server is `go install github.com/mistakeknot/intermute/cmd/intermute@latest && intermute serve`.
 
 ## Usage
 
@@ -85,38 +85,38 @@ hooks/                   PreToolUse on Edit/Write (blocks reserved files), git p
 
 Reservations:
 
-- `reserve_files` — reserve file patterns before editing; blocks other agents from touching them
-- `release_files` — release specific reservations by ID
-- `release_all` — release all your active reservations at once
-- `my_reservations` — list your current active reservations
-- `check_conflicts` — dry-run conflict check for file patterns (creates no reservation)
+- `reserve_files`: reserve file patterns before editing; blocks other agents from touching them
+- `release_files`: release specific reservations by ID
+- `release_all`: release all your active reservations at once
+- `my_reservations`: list your current active reservations
+- `check_conflicts`: dry-run conflict check for file patterns (creates no reservation)
 
 Negotiation:
 
-- `negotiate_release` — ask another agent to release a file, with urgency and optional blocking wait
-- `respond_to_release` — resolve a negotiation: release now, or defer with an ETA
-- `force_release_negotiation` — force-release a reservation after a negotiation has timed out
-- `request_release` (deprecated) — legacy release-request tool; use `negotiate_release`
-- `expire_window` — soft-delete a window identity by setting its expiration to now
+- `negotiate_release`: ask another agent to release a file, with urgency and optional blocking wait
+- `respond_to_release`: resolve a negotiation: release now, or defer with an ETA
+- `force_release_negotiation`: force-release a reservation after a negotiation has timed out
+- `request_release` (deprecated): legacy release-request tool; use `negotiate_release`
+- `expire_window`: soft-delete a window identity by setting its expiration to now
 
 Messaging:
 
-- `send_message` — send a message to another agent
-- `broadcast_message` — send a message to every agent in the project
-- `fetch_inbox` — check your inbox for messages from other agents
-- `fetch_stale_acks` — find messages needing acknowledgment that missed their TTL
-- `list_topic_messages` — list messages by topic, for late-joining or oversight agents
+- `send_message`: send a message to another agent
+- `broadcast_message`: send a message to every agent in the project
+- `fetch_inbox`: check your inbox for messages from other agents
+- `fetch_stale_acks`: find messages needing acknowledgment that missed their TTL
+- `list_topic_messages`: list messages by topic, for late-joining or oversight agents
 
 Agents and identity:
 
-- `list_agents` — list agents registered with intermute, optionally filtered by capability
-- `list_window_identities` — list active window identities (tmux window UUID to persistent agent ID) for this project
-- `rename_window` — update the display name for a window identity
+- `list_agents`: list agents registered with intermute, optionally filtered by capability
+- `list_window_identities`: list active window identities (tmux window UUID to persistent agent ID) for this project
+- `rename_window`: update the display name for a window identity
 
 Contact policy:
 
-- `get_contact_policy` — get your agent's current contact policy
-- `set_contact_policy` — set who can message you: open, auto, contacts_only, or block_all
+- `get_contact_policy`: get your agent's current contact policy
+- `set_contact_policy`: set who can message you: open, auto, contacts_only, or block_all
 
 ## Design decisions
 

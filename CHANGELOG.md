@@ -8,17 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Found by running five agents through interlock on one checkout (2026-09-02); the run is written up in `docs/case-studies/2026-09-02-five-agents-one-checkout.md`.
 
-- The pre-edit hook now detects a conflict on the intermute path. Its jq filter indexed the path string instead of the reservation, so every check read as clear and the hook then auto-reserved over another agent's exclusive hold (#3).
-- A 409 from the auto-reserve is now a block naming the holder, and the block message shows the holder's name rather than its id (#3).
+- The pre-edit hook now detects a conflict on the intermute path. Its jq filter indexed the path string instead of the reservation, so every check came back clear and the hook then auto-reserved over another agent's exclusive hold (#3). Nothing was ever blocked.
+- A 409 from the auto-reserve is now a block naming the holder. The block message shows the holder's name rather than its id (#3).
 - `INTERLOCK_AGENT_NAME` is honoured by the session-start registration ahead of any per-user name file, so the hook and the MCP server carry one name; the hook treats a hold by an agent with its own name as its own (#4, interim).
-- Commit notifications are addressed to real agent ids; they used to go out to a list of empty strings (#5). The post-commit auto-release had the same jq mistake and never released anything, and its DELETE carried no agent header, which intermute answers with 403.
-- The post-commit hook no longer prints intermute's reply into git's output (#6), and it now sees the files of a repository's first commit.
-- One identity per session: the MCP server adopts an agent the session-start hook already registered under its name, the hook adopts the server's row when it got there first, and inside tmux both default to the pane title. `INTERLOCK_AGENT_NAME` sets the name for both (#4).
-- `interlock-mcp --version` prints the version and exits; any other flag is rejected. The pre-edit hook uses intermute unless `INTERLOCK_RESERVE_BACKEND=ic` asks for intercore explicitly (#7).
+- Commit notifications are addressed to real agent ids. They used to go out to a list of empty strings (#5). The post-commit auto-release had the same jq mistake and never released anything, and its DELETE carried no agent header, which intermute answers with 403.
+- The post-commit hook no longer prints intermute's reply into git's output (#6). It also sees the files of a repository's first commit.
+- One identity per session (#4). The MCP server adopts an agent the session-start hook already registered under its name, the hook adopts the server's row when it got there first, and inside tmux both default to the pane title; `INTERLOCK_AGENT_NAME` names both.
+- `interlock-mcp --version` prints the version and exits. Any other flag is rejected. The pre-edit hook uses intermute unless `INTERLOCK_RESERVE_BACKEND=ic` asks for intercore explicitly (#7).
 - The README and SECURITY.md say which edits the pre-edit hook sees: Edit and Write tool calls, not shell writes (#9).
-- `fetch_inbox` pages: it sends intermute's `since_cursor`, returns the server's position as `next_cursor`, and caps a page at 50. It used to send a parameter intermute ignores and read a field intermute never sets, so every call returned the whole history, and one lane's inbox outgrew the client's output limit (#8). The pre-edit hook's inbox poll now uses the real route and acknowledges as the agent.
+- `fetch_inbox` pages. It sends intermute's `since_cursor`, returns the server's position as `next_cursor`, and caps a page at 50. It used to send a parameter intermute ignores and read a field intermute never sets, so every call returned the whole history, and one lane's inbox outgrew the client's output limit (#8). The pre-edit hook's inbox poll now uses the real route and acknowledges as the agent.
 - The two-agent demo clears the caller's agent identity for the agents it launches. Run from inside a Claude Code session with the plugin loaded, both demo agents used to run as the caller, which intermute 0.1.1 now refuses (#10).
-- Tests: `tests/structural/test_hook_scripts.py` runs the check script, the pre-edit hook, the post-commit hook, and the registration script against a fake intermute, including identity adoption and the reserve-backend switch.
+- Tests: `tests/structural/test_hook_scripts.py` runs the check script, the pre-edit hook, the post-commit hook, and the registration script against a fake intermute. The cases cover identity adoption and the reserve-backend switch.
 
 ## [0.2.19] - 2026-09-01
 

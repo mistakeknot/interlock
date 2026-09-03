@@ -36,11 +36,11 @@ Raw MCP config, for any client that reads one:
 }
 ```
 
-`interlock-mcp` registers itself with intermute on startup, so the 20 tools work immediately — see § Two gates below.
+`interlock-mcp` registers itself with intermute on startup, so the 20 tools work immediately; see § Two gates below.
 
 ## 4. Claude Code plugin path
 
-If you're using Claude Code, install via the plugin marketplace instead (see README § Installation) — it wires the manifest, hooks, and commands for you.
+If you're using Claude Code, install via the plugin marketplace instead (see README § Installation); it wires the manifest, hooks, and commands for you.
 
 ## 5. Install the hooks (optional, for enforcement)
 
@@ -128,5 +128,5 @@ The MCP tools are the whole coordination surface. The pre-edit block and the git
 
 There are two independent gates, and it's easy to assume they're one:
 
-- **The MCP tools** work as soon as `interlock-mcp` is running and registered — `reserve_files`, `check_conflicts`, and the rest answer immediately, raw-MCP config or not.
+- **The MCP tools** work as soon as `interlock-mcp` is running and registered. `reserve_files`, `check_conflicts`, and the rest answer immediately, raw-MCP config or not.
 - **The advisory hooks and pre-commit enforcement** are a Claude Code plugin feature and switch on with `/interlock:join` (or by creating the join flag file by hand). A raw-MCP user who wants the pre-commit block installs the hooks themselves (§ 5); nothing about running `interlock-mcp` alone turns enforcement on.
