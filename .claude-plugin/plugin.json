@@ -1,6 +1,6 @@
 {
   "name": "interlock",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "description": "MCP server for intermute file reservation and agent coordination. 20 tools: reserve, release, conflict check, messaging, agent listing, negotiation, escalation.",
   "author": {
     "name": "mistakeknot"
