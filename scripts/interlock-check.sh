@@ -31,17 +31,29 @@ fi
 # Query active reservations for this project
 RESPONSE=$(intermute_curl GET "/api/reservations?project=${PROJECT}" 2>/dev/null) || exit 1
 
-# Check each reservation for path conflict (excluding our own)
-CONFLICT=$(echo "$RESPONSE" | jq -r --arg path "$REL_PATH" --arg us "$OUR_AGENT_ID" '
-    .reservations[]
-    | select(.agent_id != $us)
+# Agents in the project, so a reservation held by an agent that shares our name
+# (the MCP server and the hook register separately, see issue #4) counts as ours.
+OUR_NAME="${INTERMUTE_AGENT_NAME:-}"
+AGENTS=$(intermute_curl GET "/api/agents?project=${PROJECT}" 2>/dev/null) || AGENTS=""
+if [[ -z "$AGENTS" ]] || ! echo "$AGENTS" | jq -e . >/dev/null 2>&1; then
+    AGENTS='{"agents":[]}'
+fi
+
+# Check each active exclusive reservation for a path conflict, excluding ours.
+# `. as $r` matters: inside `$path | startswith(...)` the input is the path
+# string, so `.path_pattern` there used to index a string and jq aborted,
+# which read as "no conflict" (issue #3).
+CONFLICT=$(echo "$RESPONSE" | jq -rc --arg path "$REL_PATH" --arg us "$OUR_AGENT_ID" --arg name "$OUR_NAME" --argjson agents "$AGENTS" '
+    ([$us] + [ $agents.agents[]? | select($name != "" and .name == $name) | .agent_id ]) as $self
+    | .reservations[]?
     | select(.is_active == true)
     | select(.exclusive == true)
-    | select(
-        ($path | startswith(.path_pattern | rtrimstr("*"))) or
-        (.path_pattern == $path)
-    )
-    | {held_by: .agent_id, reason: .reason, expires_at: .expires_at, pattern: .path_pattern}
+    | select(.agent_id as $a | ($self | any(. == $a)) | not)
+    | . as $r
+    | select(($path | startswith($r.path_pattern | rtrimstr("*"))) or ($r.path_pattern == $path))
+    | {held_by: .agent_id,
+       held_by_name: ([ $agents.agents[]? | select(.agent_id == $r.agent_id) | .name ][0] // ""),
+       reason: .reason, expires_at: .expires_at, pattern: .path_pattern}
 ' 2>/dev/null | head -1) || CONFLICT=""
 
 # Output conflict (empty string means no conflict)

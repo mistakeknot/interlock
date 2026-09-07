@@ -11,12 +11,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/../hooks/lib.sh"
 
 # Determine agent name
-AGENT_NAME=""
+# INTERLOCK_AGENT_NAME is the per-session override and is also what the MCP
+# server names itself, so setting it gives the hook and the server one name.
+AGENT_NAME="${INTERLOCK_AGENT_NAME:-}"
 NAME_FILE="${HOME}/.config/interlock/agent-name"
 LEGACY_NAME_FILE="${HOME}/.config/clavain/intermute-agent-name"
-if [[ -f "$NAME_FILE" ]]; then
+if [[ -z "$AGENT_NAME" && -f "$NAME_FILE" ]]; then
     AGENT_NAME="$(head -1 "$NAME_FILE" 2>/dev/null | tr -d '\n')"
-elif [[ -f "$LEGACY_NAME_FILE" ]]; then
+elif [[ -z "$AGENT_NAME" && -f "$LEGACY_NAME_FILE" ]]; then
     AGENT_NAME="$(head -1 "$LEGACY_NAME_FILE" 2>/dev/null | tr -d '\n')"
 fi
 if [[ -z "$AGENT_NAME" ]] && command -v tmux &>/dev/null; then
@@ -91,6 +93,28 @@ if [[ -n "$WINDOW_UUID" ]]; then
 fi
 
 REGISTER_ID="${AGENT_ID_OVERRIDE:-$AGENT_ID_DEFAULT}"
+
+# One identity per session (issue #4): the MCP server registers under the same
+# name when INTERLOCK_AGENT_NAME is set or both sides read the tmux pane title.
+# If that row exists, adopt it instead of registering a second agent. The two
+# start at the same moment, so wait briefly for the server's row to appear.
+if [[ -z "$AGENT_ID_OVERRIDE" && ( -n "${INTERLOCK_AGENT_NAME:-}" || -n "${TMUX:-}" ) ]]; then
+    for _try in 1 2 3 4 5 6; do
+        AGENTS_JSON=$(intermute_curl GET "/api/agents?project=$(printf '%s' "$PROJECT" | jq -sRr @uri)" 2>/dev/null) || AGENTS_JSON=""
+        MATCH_IDS=$(echo "$AGENTS_JSON" | jq -r --arg name "$AGENT_NAME" '[.agents[]? | select(.name == $name) | .agent_id] | .[]' 2>/dev/null) || MATCH_IDS=""
+        # grep -c prints 0 and exits 1 when nothing matches, so no fallback echo here.
+        MATCH_COUNT=$(printf '%s\n' "$MATCH_IDS" | grep -c . 2>/dev/null || true)
+        MATCH_COUNT="${MATCH_COUNT:-0}"
+        if [[ "$MATCH_COUNT" -eq 1 ]]; then
+            AGENT_ID="$(printf '%s\n' "$MATCH_IDS" | head -1)"
+            jq -nc --arg agent_id "$AGENT_ID" --arg name "$AGENT_NAME" --arg session_id "$SESSION_ID" \
+                '{agent_id: $agent_id, name: $name, session_id: $session_id, adopted: true}'
+            exit 0
+        fi
+        [[ "$MATCH_COUNT" -gt 1 ]] && break
+        sleep 0.5
+    done
+fi
 
 # POST to intermute /api/agents
 RESPONSE=$(intermute_curl POST "/api/agents" \

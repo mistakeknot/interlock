@@ -15,6 +15,22 @@ PROJECT = os.environ.get("DEMO_PROJECT", os.getcwd())
 PATTERN = "src/**/*.go"
 LOG_DIR = os.environ.get("DEMO_LOG_DIR", os.getcwd())
 
+# The shell of a Claude Code session with the interlock plugin carries that
+# session's agent identity (the session-start hook exports it), and
+# interlock-mcp keeps an identity its environment already has. The demo's
+# agents must be their own agents, so these are cleared for them (issue #10).
+IDENTITY_RESET = {
+    "INTERMUTE_AGENT_ID": "",
+    "INTERLOCK_AGENT_ID": "",
+    "INTERMUTE_AGENT_NAME": "",
+    "CLAUDE_SESSION_ID": "",
+}
+
+
+def agent_env(base, name):
+    """Environment for one demo agent: the shared base, no inherited identity, its own name."""
+    return {**base, **IDENTITY_RESET, "INTERLOCK_AGENT_NAME": name}
+
 
 class MCP:
     """Minimal MCP stdio client: newline-delimited JSON-RPC 2.0."""
@@ -86,8 +102,8 @@ def main():
 
     # Names only: intermute issues the IDs at registration, and each
     # interlock-mcp registers itself on startup.
-    alpha = MCP("alpha", interlock, {**base, "INTERLOCK_AGENT_NAME": "alpha"})
-    beta = MCP("beta", interlock, {**base, "INTERLOCK_AGENT_NAME": "beta"})
+    alpha = MCP("alpha", interlock, agent_env(base, "alpha"))
+    beta = MCP("beta", interlock, agent_env(base, "beta"))
     try:
         step(1, "alpha", f"reserves {PATTERN}")
         show(alpha.call("reserve_files", patterns=[PATTERN], reason="refactoring the parser", ttl_minutes=30))

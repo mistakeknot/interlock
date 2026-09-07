@@ -1,0 +1,29 @@
+tuivision	partial	825155e	Fixed Demarch-prefixed bead IDs and a /root/projects path in docs/plans+brainstorms; left docs/roadmap.json "Clavain" hit untouched (out of scope: not README/*.md/plugin.json)
+tldr-swinton	partial	308b2cc	51 files: paths, Demarch-link, Clavain prose, bead/beads label prose scrubbed. Left: 2 bd close commands (code), docs/solutions/workflow-issues/bd-commands-hang-stale-startlock-20260213.md (whole doc documents the actual named bd/Beads daemon itself, not generic issue jargon -- judgment call, left untouched), 3 mcp__plugin_clavain_* tool identifiers in research-mcp-tool-count-effects.md, clavain:executing-plans skill refs (identifiers)
+interwatch	done	7c79c03	beads->issues prose, Clavain companion-plugin clauses deleted/genericized in README+plugin.json+kimi.plugin.json+vision.md; left docs/roadmap.json Clavain hit untouched (out of scope, not *.md)
+intertrust	done	0c232dc	Deleted Related-list Clavain entry; left /clavain:resolve slash-command identifier untouched
+intertree	done	-	no jargon hits found (no docs/ dir); nothing to commit
+intertrace	done	ef43c91	Demarch removed, bead->issue prose throughout README; left /intertrace iv-<bead-id> command syntax and iv-5muhg code example untouched
+intertest	done	e67b95f	Clavain -> the host plugin in README + vision.md
+intersynth	done	e3278a3	Demarch heading+paths, /home/mk and /root/projects paths, PHILOSOPHY.md ref, beads/auto-bead prose, Clavain prose fixed across 5 files; left .clavain/ dir paths and os/clavain/*.md file paths and bare clavain table-cell/inline-code plugin-name refs (identifiers)
+interstat	done	5f70764	10 files: /home/mk and /root/projects paths, Clavain->host plugin prose, bead/beads->issue prose; left docs/roadmap.json Clavain hit untouched (out of scope)
+interspect	done	b444506	7 files: /home/mk/projects/Demarch paths -> ~/projects/Sylveste, Companion-plugin-for-Clavain deleted from both manifests, Clavain prose fixed; left os/clavain and .clavain/ literal paths (identifiers)
+interslack	done	aa99bb7	Clavain->the host plugin, Demarch dropped in docs/interslack-vision.md
+interskill	done	-	no jargon hits found (no docs/ dir); nothing to commit
+intersight	done	-	reservation conflict on README.md+kimi.plugin.json with agent sweep-release (negotiated release, did not wait); grep found zero jargon hits across all 4 targets anyway (no docs/ dir), so nothing to edit -- conflict was moot
+intership	done	-	no jargon hits found; nothing to commit
+intersense	done	-	no jargon hits found; nothing to commit
+interscribe	done	758748b	Removed PHILOSOPHY.md reference from README design-decisions list
+interscout	done	bcf3aab	Unlinked PHILOSOPHY.md ref, Clavain->host plugin, bead-derived->issue-derived; left /clavain:status and /clavain:roadmap-cadence command identifiers
+interrank	done	-	no jargon hits found; nothing to commit
+interpulse	done	-	no jargon hits found; nothing to commit
+interpub	done	7e08651	Clavain->host plugin, Demarch->Sylveste in docs/interpub-vision.md; left docs/roadmap.json Clavain hit untouched (out of scope)
+interplug	done	-	no jargon hits found; nothing to commit
+interphase	done	a325286	6 files: beads->issues prose throughout, Clavain->host plugin, dead Demarch link deleted, plugin.json+kimi.plugin.json description/shortDescription de-jargoned; left bd CLI, bead file-path segments, beads-workflow skill dir, keywords array, [clavain/interphase] tag, docs/roadmap.json (out of scope)
+interpeer	done	f12c5d3	Clavain->host plugin, beads->issues in docs/interpeer-vision.md
+interpath	done	2d4d0d4	4 files: beads->issues prose, Clavain companion-line deleted+prose fixed, Demarch->Sylveste; left keywords array entries (out of scope)
+internext	done	70bc9d0	beads->issue-tracker/issues prose, Clavain->host plugin in README+vision.md; left bd CLI commands, keywords array, docs/roadmap.json (out of scope)
+intername	skipped	-	README.md (only file with a hit: "### Demarch" heading at line 76) reserved by agent sweep-scaffold (scaffold: intername); negotiated release, deferring to revisit at end of run
+intermux	done	-	no edits: every bead/beads hit here is a legitimate cited external OSS reference (github.com/steveyegge/beads, linked explicitly in docs/vision.md and docs/presence-metadata-contract.md) or a literal code identifier (bd CLI subcommands, active_bead_id JSON fields) -- not internal jargon, judgment call to leave untouched
+intermonk	done	-	no jargon hits found; nothing to commit
+intername	done	-	conflict resolved on retry (other agent had released README.md by then); "### Demarch" is a real selectable codename theme backed by data/themes/demarch.json ("name": "Demarch") -- a genuine product feature, not the deprecated platform-name jargon -- left untouched (judgment call, cannot touch data/themes/*.json anyway per files-may-touch scope). No other hits in repo.

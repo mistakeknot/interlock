@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -577,6 +578,33 @@ func (c *Client) RegisterAgent(ctx context.Context) (*Agent, error) {
 	return &agent, nil
 }
 
+// AdoptAgentByName looks for an agent already registered under this client's
+// name in its project and, when exactly one exists, takes over its id. It
+// returns nil when there is nothing to adopt. Adoption carries no token, so it
+// only works where intermute lets loopback callers through without one; a
+// caller that needs a token registers instead.
+func (c *Client) AdoptAgentByName(ctx context.Context) (*Agent, error) {
+	if c.agentName == "" {
+		return nil, nil
+	}
+	agents, err := c.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var match []Agent
+	for _, a := range agents {
+		if a.Name == c.agentName {
+			match = append(match, a)
+		}
+	}
+	if len(match) != 1 {
+		return nil, nil
+	}
+	c.agentID = match[0].AgentID
+	adopted := match[0]
+	return &adopted, nil
+}
+
 // ResolveAgentID accepts an agent ID or display name and returns the ID.
 // An exact ID match wins; otherwise the name must identify exactly one
 // agent in the project.
@@ -833,21 +861,36 @@ func (c *Client) ExpireWindow(ctx context.Context, windowUUID string) error {
 }
 
 // FetchInbox fetches inbox messages for this agent.
+// inboxPageSize caps one inbox fetch. intermute has no default limit, and a
+// five-agent run grew an unbounded page past the client's output limit (#8).
+const inboxPageSize = 50
+
+// FetchInbox returns messages after cursor (empty means from the start) and
+// the cursor to pass next time. intermute reads `since_cursor` and answers
+// with `cursor`, the position of the last message returned; the previous
+// `cursor`/`next_cursor` pair matched nothing on either side, so every call
+// returned the whole history (#8).
 func (c *Client) FetchInbox(ctx context.Context, cursor string) ([]Message, string, error) {
 	q := url.Values{}
 	q.Set("project", c.project)
+	q.Set("limit", strconv.Itoa(inboxPageSize))
 	if cursor != "" {
-		q.Set("cursor", cursor)
+		q.Set("since_cursor", cursor)
 	}
 	path := "/api/inbox/" + url.PathEscape(c.agentID) + "?" + q.Encode()
 	var result struct {
-		Messages   []Message `json:"messages"`
-		NextCursor string    `json:"next_cursor"`
+		Messages []Message `json:"messages"`
+		Cursor   uint64    `json:"cursor"`
 	}
 	if err := c.doJSON(ctx, "GET", path, nil, &result); err != nil {
 		return nil, "", err
 	}
-	return result.Messages, result.NextCursor, nil
+	// An empty page means the caller is caught up: return "" so loops stop.
+	// Callers that want to keep their place keep the cursor they passed.
+	if len(result.Messages) == 0 || result.Cursor == 0 {
+		return result.Messages, "", nil
+	}
+	return result.Messages, strconv.FormatUint(result.Cursor, 10), nil
 }
 
 // FetchThread fetches all messages in a thread.
