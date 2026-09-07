@@ -13,6 +13,12 @@ fi
 INTERMUTE_SOCKET="${INTERMUTE_SOCKET:-/var/run/intermute.sock}"
 INTERMUTE_URL="${INTERMUTE_URL:-http://127.0.0.1:7338}"
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT=""
+# The lock lives in the common git dir so every worktree of a checkout shares
+# one lock. In a worktree $GIT_ROOT/.git is the gitdir pointer file, and a
+# mkdir under it can never succeed: every worktree commit used to run out the
+# whole timeout and fail (Sylveste-asqi).
+GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || GIT_COMMON=""
+[[ -n "$GIT_COMMON" ]] || GIT_COMMON="${GIT_ROOT}/.git"
 INTERMUTE_PROJECT="${INTERMUTE_PROJECT:-$(basename "$GIT_ROOT" 2>/dev/null)}"
 
 if [[ -z "$INTERMUTE_PROJECT" || -z "$GIT_ROOT" ]]; then
@@ -24,8 +30,8 @@ fi
 # commits so reservation checks and downstream pushes happen in a predictable
 # order. We use a PID-based lockfile with spin-wait — simpler than flock across
 # hooks.
-COMMIT_LOCK="${GIT_ROOT}/.git/commit.lock"
-LOCK_TIMEOUT=30
+COMMIT_LOCK="${GIT_COMMON}/commit.lock"
+LOCK_TIMEOUT="${INTERLOCK_COMMIT_LOCK_TIMEOUT:-30}"
 LOCK_ACQUIRED=false
 
 acquire_commit_lock() {
