@@ -334,9 +334,9 @@ func broadcastMessage(c *client.Client) server.ServerTool {
 func fetchInbox(c *client.Client) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("fetch_inbox",
-			mcp.WithDescription("Check your inbox for messages from other agents."),
+			mcp.WithDescription("Check your inbox for messages from other agents. Returns at most 50 messages after the cursor; pass the returned next_cursor on the following call to read only what is new."),
 			mcp.WithString("cursor",
-				mcp.Description("Pagination cursor from a previous fetch"),
+				mcp.Description("next_cursor from the previous fetch; omit to start from the beginning"),
 			),
 		),
 		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -345,6 +345,10 @@ func fetchInbox(c *client.Client) server.ServerTool {
 			messages, nextCursor, err := c.FetchInbox(ctx, cursor)
 			if err != nil {
 				return toToolError(err), nil
+			}
+			if nextCursor == "" {
+				// Caught up: hand the caller's position back so the next call stays incremental.
+				nextCursor = cursor
 			}
 			timeouts, timeoutErr := c.CheckExpiredNegotiations(ctx)
 			if messages == nil {

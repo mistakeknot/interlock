@@ -1,0 +1,56 @@
+intermonk	done	513be2a	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intermux	done	02e61a7	Added Unreleased block to existing CHANGELOG; kimi.plugin.json and README already fine
+intermix	partial	-	CHANGELOG.md drafted (uncommitted); kimi.plugin.json version already matched; no README.md exists in repo so check-before-commit cannot PASS and locked interpretation does not authorize creating one
+intername	done	8ea0698	CHANGELOG.md created; kimi.plugin.json version matched; README already had Install heading
+intermem	done	cd03536	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+internext	done	814745c	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intermap	done	5348a5c	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interpath	done	100f86c	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interlore	done	cd642cf	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interpeer	done	004d73f	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interloop	done	f8cbb2d	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interphase	done	0e73976	CHANGELOG.md created; kimi.plugin.json version matched; README reservation conflicted with sweep-ci but no README edit was needed (Installation heading already present)
+interlock	done	-	All three targets already satisfied: CHANGELOG.md has Unreleased section, kimi.plugin.json version matched, README had Installation heading. No edits, no commit needed
+interplug	done	fa02609	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interline	done	01801b0	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interpub	done	565121d	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interlens	done	0eaa6c5	Added Unreleased block to existing CHANGELOG; kimi.plugin.json matched; README had no Install heading so inserted Install section plus MCP client JSON block (mcpServers present)
+interpulse	done	41e8554	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interleave	done	dddcd4e	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interrank	done	5e1124b	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading so inserted Install section plus MCP client JSON block (mcpServers present)
+interlearn	done	c8def5b	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading (no mcpServers) so inserted plain Install section
+interscout	done	e919d35	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading (deprecated plugin, no mcpServers) so inserted plain Install section
+interlab	done	2924663	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interscribe	done	feb3539	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interknow	done	32dfee9	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intersense	skipped	-	Archived repo, no .claude-plugin/plugin.json exists (see ARCHIVED.md); release.md task mechanism (CHANGELOG version + kimi.plugin.json version compare) has no anchor here; README already had Installation heading so nothing to do there either
+interkasten	done	2b2bac1	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intership	done	1dcec2b	CHANGELOG.md created; kimi.plugin.json version matched; README already had Install heading
+interject	done	addb951	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intersight	done	601e6ae	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading (no mcpServers) so inserted plain Install section
+interhelm	done	b8a59cb	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interskill	done	8b6a299	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intergraph	done	92d1eee	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading so inserted Install section plus MCP client JSON block (mcpServers present)
+interslack	done	c38c218	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interform	done	e3e0260	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interspect	done	d1e1d86	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interflux	done	13a74ce	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interstat	done	ae75df7	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interfluence	done	64ef708	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading so inserted Install section plus MCP client JSON block (mcpServers present)
+intersynth	done	d2013d9	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interdoc	done	7acef87	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intertest	done	81022c7	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interdev	done	8d12906	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intertrace	done	7c777fe	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interdeploy	done	e7448b7	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intertree	done	1f2cc45	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interdeep	done	8b4a264	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intertrust	done	12cc413	CHANGELOG.md created; kimi.plugin.json version matched; README already had Install heading
+intercraft	done	16c55fe	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+interwatch	done	6491d86	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intercheck	done	cf9704f	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+tldr-swinton	done	9543607	CHANGELOG.md created; kimi.plugin.json version matched; README already had a heading matching ^## Install (Installation details) so left untouched
+interchart	done	b568413	CHANGELOG.md created; kimi.plugin.json matched; README had no Install heading (no mcpServers) so inserted plain Install section
+tuivision	done	869a23a	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading
+intercept	partial	-	CHANGELOG.md drafted (uncommitted); kimi.plugin.json version already matched; no README.md exists in repo so check-before-commit cannot PASS and locked interpretation does not authorize creating one
+intercache	done	543485e	CHANGELOG.md created; kimi.plugin.json version matched; README already had Installation heading

@@ -1,0 +1,60 @@
+intercache	done	b9d3a45	LICENSE already present with different copyright text (2025 MK); left untouched after almost overwriting it with template
+intercept	partial	6c4ae88	no README.md exists in this repo; LICENSE/CONTRIBUTING/SECURITY/CODE_OF_CONDUCT committed, Contributing-section step skipped; README.md also reserved by sweep-ci concurrently, negotiated release
+interchart	done	ce759d5	-
+intercheck	done	01e7648	-
+interdeep	done	b0e897f	-
+interdeploy	done	7d64eee	-
+interdev	done	b2ff2ae	-
+interdoc	partial	616c163	README.md reserved by sweep-jargon-a; negotiate_release returned NOT_FOUND for both display name and agent_id (see friction log); revisit at end of sweep
+interfluence	partial	b1854a4	README.md reserved by sweep-jargon-a; negotiate_release succeeded (pending) this time but repo skipped for now, revisit at end
+intermix	partial	cebd74f	no README.md existed at scan time; ci lane holds a reservation on interverse/intermix/README.md (may be creating one); revisit at end
+interform	done	2a0c573	-
+intergraph	done	ec43505	-
+interhelm	done	fd65534	-
+interject	done	5d6cfa8	-
+interkasten	done	7dde458	-
+interknow	done	a56a705	-
+interlab	done	a4629b0	-
+interlearn	done	f6594b9	-
+interleave	done	dd9e20a	-
+interlens	done	77025b7	-
+interline	done	5c8ffd7	-
+interlock	partial	-	all 4 files already existed; README.md reserved by sweep-ci, negotiate_release pending; revisit at end
+interloop	done	546bdcf	-
+interlore	done	5322e2c	-
+interflux	done	ef0ec63	processed out of order (after interlore, position 11 in list); noting so revisit list is accurate
+intermap	done	703e3da	-
+intermem	done	2928655	-
+intermonk	done	e79b4b4	-
+intermux	done	c07b53d	all 4 files already existed; only README Contributing section added
+intername	done	38ad98e	-
+internext	done	f7bfc59	-
+interpath	done	71023e9	-
+interpeer	done	b850175	-
+interphase	done	23ae8d2	-
+interplug	done	8697230	-
+interpub	done	835fa52	-
+interpulse	done	55370e8	-
+interrank	done	e9cbe44	-
+interscout	done	270bf48	-
+interscribe	done	ded3abd	-
+intersense	done	20bf649	repo is archived (see ARCHIVED.md); scaffolded anyway per brief, SECURITY.md notes archived status
+intership	done	a554ba9	-
+intersight	done	2c43040	-
+interskill	done	fd61f66	-
+interslack	done	42a0636	-
+interspect	done	fe6d9ae	-
+interstat	done	0757603	-
+intersynth	done	bb29f74	-
+intertest	done	c0984f3	-
+intertrace	done	f76a0f9	-
+intertree	done	fbb857c	-
+intertrust	done	2e3f057	-
+interwatch	done	9b92051	-
+tldr-swinton	done	9ea1b83	-
+tuivision	done	ab9808d	-
+intercraft	done	0642369	progress line was missed at the time; added retroactively after final audit
+interdoc	done	997e1d6	README Contributing section added on revisit (earlier reservation conflict now resolved)
+interfluence	done	255675b	README Contributing section added on revisit
+interlock	done	094a0be	README Contributing section added on revisit; other 4 files pre-existed
+intermix	partial	-	no README.md exists in this repo (still true after revisit); permanent skip like intercept

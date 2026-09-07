@@ -1,0 +1,1 @@
+You have interlock MCP tools. Do exactly this and nothing else: 1) call reserve_files with patterns ["src/**/*.go"], reason "kimi demo", ttl_minutes 5. 2) call my_reservations. 3) call check_conflicts with patterns ["src/main.go"]. 4) call release_all. Then print one line per step saying what each tool returned.

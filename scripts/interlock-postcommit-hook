@@ -21,7 +21,8 @@ fi
 # --- Gather commit details ---
 COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null) || COMMIT_HASH=""
 COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null) || COMMIT_SHORT=""
-CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null) || CHANGED_FILES=""
+# --root so the first commit in a repository lists its files too.
+CHANGED_FILES=$(git diff-tree --root --no-commit-id --name-only -r HEAD 2>/dev/null) || CHANGED_FILES=""
 COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null) || COMMIT_MSG=""
 
 # --- Emit signal for interline statusline ---
@@ -59,16 +60,18 @@ if [[ -n "$OUR_RESERVATIONS" && -n "$CHANGED_FILES" ]]; then
         MATCHING_IDS=$(echo "$OUR_RESERVATIONS" | jq -r --arg path "$committed_file" '
             .reservations[]?
             | select(.is_active == true)
+            | . as $r
             | select(
-                (.path_pattern == $path) or
-                ($path | startswith(.path_pattern | rtrimstr("*")))
+                ($r.path_pattern == $path) or
+                ($path | startswith($r.path_pattern | rtrimstr("*")))
             )
             | .id
         ' 2>/dev/null) || MATCHING_IDS=""
 
         while IFS= read -r res_id; do
             [[ -z "$res_id" ]] && continue
-            "${CURL_BASE[@]}" -X DELETE "${BASE_URL}/api/reservations/${res_id}" 2>/dev/null || true
+            # DELETE answers 403 unless the caller identifies as the holder.
+            "${CURL_BASE[@]}" -X DELETE -H "X-Agent-ID: ${INTERMUTE_AGENT_ID}" "${BASE_URL}/api/reservations/${res_id}" >/dev/null 2>&1 || true
         done <<< "$MATCHING_IDS"
     done <<< "$CHANGED_FILES"
 fi
@@ -80,9 +83,12 @@ AGENTS=$("${CURL_BASE[@]}" "${BASE_URL}/api/agents?project=$(printf '%s' "$INTER
     exit 0
 }
 
-# Extract agent IDs, excluding ourselves
-OTHER_AGENTS=$(echo "$AGENTS" | jq -r --arg self "$INTERMUTE_AGENT_ID" \
-    '[.agents[]? | select(.id != $self) | .id] | if length > 0 then . else empty end' 2>/dev/null) || OTHER_AGENTS=""
+# Extract agent ids, excluding ourselves and any agent that shares our name
+# (our own MCP server registers separately, issue #4). The field is agent_id;
+# selecting .id produced a list of nulls and nobody ever received a commit
+# notification (issue #5).
+OTHER_AGENTS=$(echo "$AGENTS" | jq -c --arg self "$INTERMUTE_AGENT_ID" --arg name "${INTERMUTE_AGENT_NAME:-}" \
+    '[.agents[]? | select(.agent_id != $self) | select($name == "" or .name != $name) | .agent_id | select(. != null and . != "")] | if length > 0 then . else empty end' 2>/dev/null) || OTHER_AGENTS=""
 
 if [[ -z "$OTHER_AGENTS" || "$OTHER_AGENTS" == "null" ]]; then
     # No other agents online — nothing to broadcast
@@ -107,9 +113,10 @@ MSG_PAYLOAD=$(jq -nc \
     --arg body "$BODY" \
     '{from:$from,to:$to,project:$project,subject:$subject,body:$body}')
 
+# The reply is intermute's message receipt; git's output is not the place for it (issue #6).
 "${CURL_BASE[@]}" -X POST \
     -H "Content-Type: application/json" \
     -d "$MSG_PAYLOAD" \
-    "${BASE_URL}/api/messages" 2>/dev/null || true
+    "${BASE_URL}/api/messages" >/dev/null 2>&1 || true
 
 exit 0

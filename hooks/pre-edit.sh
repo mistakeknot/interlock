@@ -70,7 +70,9 @@ if [[ ! -f "$PULL_FLAG" ]] || ! find "$PULL_FLAG" -mmin -0.5 -print -quit 2>/dev
     # Cache expired (or first check) — touch flag and query inbox
     touch "$PULL_FLAG" 2>/dev/null || true
 
-    INBOX_JSON=$(intermute_curl GET "/api/messages/inbox?agent=${INTERMUTE_AGENT_ID}&unread=true" 2>/dev/null) || INBOX_JSON=""
+    # intermute's inbox route is /api/inbox/{agent}; the old /api/messages/inbox path answered 405 (#8).
+    INBOX_PROJECT="${INTERMUTE_PROJECT:-$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)}"
+    INBOX_JSON=$(intermute_curl GET "/api/inbox/${INTERMUTE_AGENT_ID}?project=${INBOX_PROJECT}&limit=50" 2>/dev/null) || INBOX_JSON=""
 
     if [[ -n "$INBOX_JSON" ]] && command -v jq &>/dev/null; then
         COMMIT_MSGS=$(echo "$INBOX_JSON" | jq -r '
@@ -89,7 +91,7 @@ if [[ ! -f "$PULL_FLAG" ]] || ! find "$PULL_FLAG" -mmin -0.5 -print -quit 2>/dev
 
             # Acknowledge commit messages so we don't re-process them
             echo "$COMMIT_MSGS" | jq -r '.[].id // empty' 2>/dev/null | while IFS= read -r msg_id; do
-                [[ -n "$msg_id" ]] && intermute_curl POST "/api/messages/${msg_id}/ack" 2>/dev/null || true
+                [[ -n "$msg_id" ]] && intermute_curl POST "/api/messages/${msg_id}/ack" -H "Content-Type: application/json" -d "{\"agent\":\"${INTERMUTE_AGENT_ID}\"}" >/dev/null 2>&1 || true
             done
 
             # Emit advisory context about the pull (if we have something to say)
@@ -109,7 +111,8 @@ if [[ "${INTERLOCK_AUTO_RELEASE:-0}" == "1" ]]; then
         touch "$NEG_FLAG" 2>/dev/null || true
 
         # Fetch inbox with circuit breaker (fail-open on timeout/error)
-        NEG_INBOX=$(intermute_curl_fast GET "/api/messages/inbox?agent=${INTERMUTE_AGENT_ID}&unread=true&limit=50" 2>/dev/null) || NEG_INBOX=""
+        NEG_PROJECT="${INTERMUTE_PROJECT:-$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)}"
+        NEG_INBOX=$(intermute_curl_fast GET "/api/inbox/${INTERMUTE_AGENT_ID}?project=${NEG_PROJECT}&limit=50" 2>/dev/null) || NEG_INBOX=""
 
         if [[ -n "$NEG_INBOX" ]]; then
             # Find release-request messages
@@ -160,7 +163,10 @@ PROJECT="${INTERMUTE_PROJECT:-$(basename "$PROJECT_ID_ROOT" 2>/dev/null)}"
 # --- Check for conflicts and auto-reserve ---
 # Preferred: use ic coordination (atomic reserve, eliminates TOCTOU).
 # Fallback: use intermute HTTP API via interlock-check.sh.
-if command -v ic &>/dev/null && ic version &>/dev/null 2>&1; then
+# The intermute path is the default. The intercore path is opt-in: on a machine
+# that happens to have `ic` on PATH the hook used to switch backends silently,
+# so maintainer and stranger ran different code (issue #7).
+if [[ "${INTERLOCK_RESERVE_BACKEND:-intermute}" == "ic" ]] && command -v ic &>/dev/null && ic version &>/dev/null 2>&1; then
     # Single atomic reserve call: if conflict exists, returns exit 1 with conflict info.
     # If clear, creates the reservation (no separate check-then-reserve race).
     # SAFETY: use jq --arg to prevent shell injection from file paths and blocker values.
@@ -220,7 +226,7 @@ ENDJSON
 
 # --- If conflict found: BLOCK the edit ---
 if [[ -n "$CONFLICT" ]]; then
-    HELD_BY=$(echo "$CONFLICT" | jq -r '.held_by // "unknown"' 2>/dev/null) || HELD_BY="unknown"
+    HELD_BY=$(echo "$CONFLICT" | jq -r '(.held_by_name | select(. != null and . != "")) // .held_by // "unknown"' 2>/dev/null) || HELD_BY="unknown"
     REASON=$(echo "$CONFLICT" | jq -r '.reason // ""' 2>/dev/null) || REASON=""
     EXPIRES=$(echo "$CONFLICT" | jq -r '.expires_at // ""' 2>/dev/null) || EXPIRES=""
 
@@ -276,8 +282,22 @@ RESERVE_PAYLOAD=$(jq -nc \
     --arg reason "auto-reserve: editing" \
     '{agent_id:$agent, project:$project, path_pattern:$pattern, exclusive:true, reason:$reason, ttl_minutes:15}')
 
-intermute_curl POST "/api/reservations" \
-    -H "Content-Type: application/json" \
-    -d "$RESERVE_PAYLOAD" >/dev/null 2>&1 || true
+RESERVE_BODY="$(mktemp "${TMPDIR:-/tmp}/interlock-body.XXXXXX")"
+RESERVE_CODE=$(intermute_post_code "/api/reservations" "$RESERVE_PAYLOAD" "$RESERVE_BODY")
+if [[ "$RESERVE_CODE" == "409" ]]; then
+    # intermute refused the hold because someone else has it (issue #3): block,
+    # unless the holder shares our name, which is our own MCP server (issue #4).
+    HB=$(jq -r '.conflicts[0].held_by // .conflicts[0].agent_id // "another agent"' "$RESERVE_BODY" 2>/dev/null) || HB="another agent"
+    RS=$(jq -r '.conflicts[0].reason // ""' "$RESERVE_BODY" 2>/dev/null) || RS=""
+    rm -f "$RESERVE_BODY"
+    [[ -n "$HB" ]] || HB="another agent"
+    if [[ -n "${INTERMUTE_AGENT_NAME:-}" && "$HB" == "$INTERMUTE_AGENT_NAME" ]]; then
+        exit 0
+    fi
+    jq -nc --arg fp "$REL_PATH" --arg hb "$HB" --arg rs "$RS" \
+        '{"decision": "block", "reason": ("INTERLOCK: " + $fp + " is exclusively reserved by " + $hb + (if $rs != "" then " (\"" + $rs + "\")" else "" end) + ". Work on other files, use request_release(agent_name=\"" + $hb + "\"), or wait for expiry.")}'
+    exit 0
+fi
+rm -f "$RESERVE_BODY"
 
 exit 0

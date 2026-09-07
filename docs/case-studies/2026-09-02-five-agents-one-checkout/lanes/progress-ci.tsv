@@ -1,0 +1,59 @@
+interscribe	done	c4c4098	py, tests/ dir, pytest exit 0, no prior workflow
+interdev	done	71f0883	py, tests/ dir, pytest exit 0, no prior ci.yml (had secret-scan.yml, untouched)
+intercept	partial	7e8fe03	py, tests/ dir, pytest exit 0 (92s); README.md does not exist in repo, badge step skipped, released reservation unused
+interstat	done	b2ff764	py but pytest tests -q exit 1 (pre-existing failing skill-count test unrelated to CI); fell back to ci-sh.yml, bash -n + json check both exit 0
+interlab	done	c46821d	go+py: go build/vet/test pass but gofmt -l . nonempty (3 files) so go chain fails; fell back to pytest tests -q exit 0, used ci-py.yml
+interkasten	done	0dd16b3	py, tests/ dir, pytest exit 1 (3 pre-existing structural-count fails); fell back to ci-sh.yml, exit 0
+interject	done	dfcb310	py, tests/ dir, pytest exit 1 (ModuleNotFoundError interject.sources, 6 collection errors); fell back to ci-sh.yml, exit 0
+interdoc	partial	09a7b99	py, pytest exit 0, ci.yml done; README.md reserved by sweep-jargon-a, negotiated (pending), will retry later
+intertrust	done	564cc6b	py, tests/ dir, pytest exit 0, no prior workflow
+interdeploy	done	58dd2af	sh, no tests dir, no go.mod, bash -n + json check exit 0
+intersight	done	0e2ec58	py, tests/ dir, pytest exit 0, no prior workflow
+interphase	done	4fc2b21	py, tests/ dir, pytest exit 0; pre-existing ci.yml (bats/shellcheck) patched for matrix, secret-scan.yml untouched
+interdeep	done	7c66dc6	py, tests/ dir, pytest exit 1 (ModuleNotFoundError interdeep.server); fell back to ci-sh.yml, exit 0
+interpulse	done	5b583b5	py, tests/ dir, pytest exit 0, no prior workflow
+intermix	partial	e7fc679	go, gofmt -l nonempty so go chain fails, no tests dir, sh check exit 0; README.md does not exist, badge step skipped
+interchart	done	239ab26	py, pytest exit 0; pre-existing generator-guards ci.yml patched for matrix; deploy.yml + secret-scan.yml untouched
+interwatch	done	dcc5e5f	py, tests/ dir, pytest exit 1 (4 failed pre-existing); fell back to ci-sh.yml, exit 0
+interslack	done	0b5a8cf	py, tests/ dir, pytest exit 0, no prior workflow
+interhelm	done	67f4aad	py, tests/ dir, pytest exit 0, no prior workflow
+intertest	done	34d8695	py, tests/ dir, pytest exit 0, no prior workflow
+interdoc	done	6f99310	completed retry: badge added after sweep-jargon-a released README.md (see earlier partial at commit 09a7b99)
+interpath	done	600085f	py, tests/ dir, pytest exit 0, no prior workflow
+interscout	partial	75268e7	sh, no tests/go.mod, sh check exit 0, ci.yml done; README.md held by sweep-release, negotiated (pending), will retry later
+intergraph	done	d84b91a	py, tests/ dir, pytest exit 0, no prior workflow
+intermem	done	a2dd230	py, tests/ dir, pytest exit 0, no prior workflow
+interpub	done	7956180	py, tests/ dir, pytest exit 0, no prior workflow
+internext	done	c881736	py, tests/ dir, pytest exit 0, no prior workflow
+interlearn	done	a9d89ef	py, tests/ dir, pytest exit 0, no prior workflow
+intersynth	done	ab4026a	py, tests/ dir, pytest exit 0, no prior workflow
+intermap	done	24b2e4a	go+py; go build/vet pass, gofmt nonempty + go test fails (TestScan_Interverse); pytest tests -q exit 0; pre-existing go ci.yml kept, patched for matrix
+intercache	done	26e1ed5	py, tests/ dir, pytest exit 1 (ModuleNotFoundError intercache.store); fell back to ci-sh.yml, exit 0
+interlore	done	db275f8	py, tests/ dir, pytest exit 0, no prior workflow
+interrank	done	cf71b9d	py+ts, tests/ dir, pytest exit 0, no prior workflow
+interlock	done	33ed415	go+py, go build/vet/gofmt/test all clean; pre-existing ci.yml already had ubuntu+macos matrix (coordination tools own repo); only README badge added
+intership	done	cfa0885	py, tests/ dir, pytest exit 0, no prior workflow
+interflux	done	b557061	py, tests/ dir, pytest exit 0 (315 passed 2 skipped); pre-existing ci.yml patched for matrix
+intermonk	done	c7334f8	py, tests/ dir, pytest exit 0, no prior workflow
+intercraft	done	cc40127	py, tests/ dir, pytest exit 0, no prior workflow
+interspect	done	6e49804	py, tests/ dir, pytest exit 1 (stale test_command_count); fell back to ci-sh.yml, exit 0
+interline	done	f9c8494	py, tests/ dir, pytest exit 0, no prior workflow
+intercheck	done	68f41cd	py, tests/ dir, pytest exit 0, no prior workflow
+tuivision	done	e9b1f72	py+ts, tests/ dir, pytest exit 0, no prior workflow
+intermux	partial	-	go+py, all local checks clean; pre-existing ci.yml already has matrix, nothing to change; README.md held by sweep-scaffold, negotiated (pending), will retry later
+interskill	done	465c4e4	py, tests/ dir, pytest exit 0, no prior workflow
+intersense	done	9ef959c	py, tests/ dir, pytest exit 1 (missing .claude-plugin/plugin.json, pre-existing); fell back to ci-sh.yml, exit 0
+interpeer	done	12b4415	py, tests/ dir, pytest exit 0, no prior workflow
+interfluence	done	b707885	py, tests/ dir, pytest exit 0, no prior workflow
+interleave	done	6492dce	py, tests/ dir, pytest exit 0, no prior workflow
+interplug	done	5cebb81	py, tests/ dir, pytest exit 0, no prior workflow
+tldr-swinton	done	c68eadd	py, pytest tests -q INTERNALERROR (evals/agent_workflow_eval.py sys.exit(1) at import, pre-existing); pre-existing ci.yml patched for matrix
+intertree	done	96b0581	py, tests/ dir, pytest exit 0, no prior workflow
+interlens	done	d63c7aa	py+ts, tests/ dir, pytest exit 0, no prior workflow
+interknow	done	a1aeffa	py, tests/ dir, pytest exit 0, no prior workflow
+interform	done	9bf6820	py, tests/ dir, pytest exit 0, no prior workflow
+intertrace	done	5dd8f47	py, tests/ dir, pytest exit 0, no prior workflow
+interloop	done	cfa44bd	py, tests/ dir, pytest exit 0, no prior workflow
+intername	done	31df953	py, tests/ dir, pytest exit 0, no prior workflow
+interscout	done	ac6686a	completed retry: badge added, README was free on retry (see earlier partial at 75268e7)
+intermux	done	9fda34c	completed retry: badge added, README was free on retry (see earlier partial, all local checks clean)
