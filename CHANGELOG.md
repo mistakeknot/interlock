@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+- The commit lock works from a git worktree. `interlock-precommit-hook`, `commit_lock_path` in `hooks/lib.sh` and `interlock-install-hooks` derived their paths from `$GIT_ROOT/.git`, which is the gitdir pointer *file* inside a worktree, so every worktree commit spun on `mkdir` until the 30 s timeout and failed with "Commit lock timeout. Another session is committing." They now use `git rev-parse --path-format=absolute --git-common-dir` (hooks: `--git-path hooks`), so all worktrees of a checkout share one lock and one hooks directory. `INTERLOCK_COMMIT_LOCK_TIMEOUT` overrides the timeout (tests). Found 2026-09-02 on interlens; Sylveste-asqi.
+
 ## [0.2.19] - 2026-09-01
 
 ### Added

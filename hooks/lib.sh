@@ -61,9 +61,11 @@ legacy_worktree_base() {
 
 # commit_lock_path returns the flock file path for serialized commits.
 commit_lock_path() {
-    local root
-    root=$(git_root)
-    [[ -n "$root" ]] && echo "${root}/.git/commit.lock" || echo ""
+    # The common git dir, so worktrees share the main checkout's lock
+    # (in a worktree $root/.git is a file, not a directory).
+    local common
+    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
+    [[ -n "$common" ]] && echo "${common}/commit.lock" || echo ""
 }
 
 # inbox_check_path returns the throttle flag file path for inbox polling.

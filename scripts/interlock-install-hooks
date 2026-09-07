@@ -11,7 +11,9 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
     exit 1
 }
 
-HOOKS_DIR="${GIT_ROOT}/.git/hooks"
+# Hooks live in the common git dir (shared by every worktree) and follow
+# core.hooksPath; $GIT_ROOT/.git is a file inside a worktree.
+HOOKS_DIR=$(git rev-parse --path-format=absolute --git-path hooks 2>/dev/null) || HOOKS_DIR="${GIT_ROOT}/.git/hooks"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Resolve template locations
