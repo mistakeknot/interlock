@@ -10,8 +10,8 @@ import (
 
 // findIC returns the path to the ic binary with coordination support. It checks:
 // 1. IC_TEST_BIN env var (pre-built binary for CI)
-// 2. Pre-built binary in intercore source tree (has latest features)
-// 3. PATH lookup (may be stale — checked last)
+// 2. PATH lookup (matches the installed schema)
+// 3. Pre-built binary in the intercore source tree (may be stale)
 // Skips the test if no binary is found.
 func findIC(t *testing.T) string {
 	t.Helper()
@@ -23,18 +23,18 @@ func findIC(t *testing.T) string {
 		}
 	}
 
-	// 2. Check pre-built binary in intercore source tree (preferred — has latest code).
+	// 2. Check PATH (the installed ic matches the schema of the shared DB).
+	if bin, err := exec.LookPath("ic"); err == nil {
+		return bin
+	}
+	// 3. Pre-built binary in the intercore source tree (can be older than the installed one; a stale
+	// one fails with "database schema version is newer").
 	icSrc := filepath.Join("..", "..", "..", "..", "core", "intercore")
 	preBuild := filepath.Join(icSrc, "ic")
 	if abs, err := filepath.Abs(preBuild); err == nil {
 		if _, err := os.Stat(abs); err == nil {
 			return abs
 		}
-	}
-
-	// 3. Check PATH (may be stale).
-	if bin, err := exec.LookPath("ic"); err == nil {
-		return bin
 	}
 
 	t.Skip("ic binary not found — set IC_TEST_BIN, build core/intercore/ic, or put ic on PATH")
@@ -51,6 +51,13 @@ func setupClient(t *testing.T) *Client {
 	clavainDir := filepath.Join(projDir, ".clavain")
 	if err := os.MkdirAll(clavainDir, 0755); err != nil {
 		t.Fatalf("mkdir .clavain: %v", err)
+	}
+
+	// Own database: without one, ic walks up from the temp dir to a shared /tmp/.clavain/intercore.db.
+	init := exec.Command(binPath, "--db=.clavain/intercore.db", "init")
+	init.Dir = projDir
+	if out, err := init.CombinedOutput(); err != nil {
+		t.Fatalf("ic init: %v: %s", err, out)
 	}
 
 	c := &Client{binary: binPath}
@@ -154,7 +161,9 @@ func TestClient_ReleaseAll(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two reservations for the same agent.
-	c.Reserve(ctx, "agent-x", "/proj", "a.go", "r1", 900, true)
+	if _, err := c.Reserve(ctx, "agent-x", "/proj", "a.go", "r1", 900, true); err != nil {
+		t.Fatal(err)
+	}
 	c.Reserve(ctx, "agent-x", "/proj", "b.go", "r2", 900, true)
 
 	n, err := c.ReleaseAll(ctx, "agent-x", "/proj")
