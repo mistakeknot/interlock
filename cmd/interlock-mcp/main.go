@@ -21,7 +21,7 @@ import (
 // version is the release version; set at build time with
 //
 //	go build -ldflags "-X main.version=x.y.z" ./cmd/interlock-mcp
-var version = "0.2.20"
+var version = "0.2.21"
 
 // handleVersionFlag answers --version/-v and rejects other flags so that
 // `interlock-mcp --version` prints and exits instead of starting a server that
